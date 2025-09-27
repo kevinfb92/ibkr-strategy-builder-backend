@@ -100,5 +100,6 @@ class TelegramChatDiscovery:
         except Exception as e:
             logger.error(f"Error running chat discovery: {e}")
 
-# Global instance
-chat_discovery = TelegramChatDiscovery(bot_token="8331227211:AAHfYne1uCNrm58FoBHpsU8tD95ETepP_VY")
+# Global instance - token loaded from environment variable
+import os
+chat_discovery = TelegramChatDiscovery(bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""))

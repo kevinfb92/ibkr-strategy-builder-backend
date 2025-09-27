@@ -4,3 +4,4 @@ pytest
 black
 flake8
 python-telegram-bot
+python-dotenv

@@ -4,7 +4,7 @@
 Your notification system now automatically sends trading alerts to Telegram with Buy/Sell buttons whenever alerter notifications are received.
 
 ## Bot Information
-- **Bot Token**: `8331227211:AAHfYne1uCNrm58FoBHpsU8tD95ETepP_VY`
+- **Bot Token**: Configured via environment variable `TELEGRAM_BOT_TOKEN`
 - **Target User**: @Kevchan
 
 ## Setup Steps

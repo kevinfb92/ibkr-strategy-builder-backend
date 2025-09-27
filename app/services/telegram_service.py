@@ -3761,5 +3761,6 @@ class TelegramService:
                 f"🔄 Processing {esc(action.lower())} action..."
             )
 
-# Global instance with your bot token
-telegram_service = TelegramService(bot_token="8331227211:AAHfYne1uCNrm58FoBHpsU8tD95ETepP_VY")
+# Global instance - token loaded from environment variable
+import os
+telegram_service = TelegramService(bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""))

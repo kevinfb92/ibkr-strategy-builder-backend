@@ -5,10 +5,15 @@ import uvicorn
 import asyncio
 import logging
 import warnings
+import os
 from urllib3.exceptions import InsecureRequestWarning
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Import routers
 from .routers import api_router, websocket_router
