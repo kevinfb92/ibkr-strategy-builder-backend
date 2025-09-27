@@ -1,0 +1,29 @@
+{
+  "ABC": {
+    "ticker": "ABC",
+    "minimum_variation": 0.001,
+    "orders": [
+      {
+        "ticker": "ABC",
+        "parent_order_id": "parent-123",
+        "created_at": "2025-09-16T16:00:55Z",
+        "status": "FILLED",
+        "limit_sell": null,
+        "stop_loss": null,
+        "minimum_variation": 0.001,
+        "last_update": {
+          "raw_message": {
+            "parentOrderId": "parent-123",
+            "orderId": "child-xyz",
+            "status": "FILLED",
+            "filled": 1,
+            "avgPrice": 0.5
+          },
+          "filled_qty": 1,
+          "avg_price": 0.5,
+          "updated_at": "2025-09-16T14:00:55.277314"
+        }
+      }
+    ]
+  }
+}
