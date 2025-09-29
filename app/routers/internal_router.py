@@ -4,6 +4,7 @@ import asyncio
 
 from ..services import penny_stock_watcher, penny_stock_monitor
 from ..services.ibkr_service import IBKRService, ibkr_service
+from ..services.order_tracking_service import order_tracking_service
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -141,5 +142,34 @@ async def ibkr_ws_logging(enable: bool = True):
         ib = ibkr_service
         ok = await asyncio.to_thread(ib.set_runtime_ws_logging, bool(enable))
         return {'ok': ok, 'enabled': bool(enable)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/order-tracking")
+def order_tracking_status() -> Dict[str, Any]:
+    """Get status and statistics of the order tracking service"""
+    try:
+        return order_tracking_service.get_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/order-tracking/reconcile")
+def force_reconcile_orders() -> Dict[str, Any]:
+    """Force reconciliation of current IBKR orders with stored alerts"""
+    try:
+        return order_tracking_service.force_reconcile()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/order-tracking/test")
+async def test_order_update(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Test the order tracking service with a simulated order update"""
+    try:
+        # Process the message directly
+        await order_tracking_service._process_order_message(payload)
+        return {"status": "Test order message processed", "payload": payload}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

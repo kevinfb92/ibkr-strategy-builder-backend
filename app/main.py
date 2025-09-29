@@ -22,6 +22,7 @@ from .services import ibkr_service, telegram_service
 from .routers.internal_router import router as internal_router
 from .services import penny_stock_watcher
 from .services import penny_position_monitor
+from .services.order_tracking_service import order_tracking_service
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to start penny position monitor: {e}")
     
+    # Start order tracking service
+    try:
+        asyncio.create_task(order_tracking_service.start())
+        logger.info("Order tracking service startup initiated")
+    except Exception as e:
+        logger.error(f"Failed to start order tracking service: {e}")
+    
     yield
     
     # Shutdown
@@ -100,6 +108,11 @@ async def lifespan(app: FastAPI):
         await penny_position_monitor.penny_position_monitor.stop()
     except Exception as e:
         logger.error(f"Error stopping penny position monitor: {e}")
+    try:
+        await order_tracking_service.stop()
+        logger.info("Order tracking service stopped")
+    except Exception as e:
+        logger.error(f"Error stopping order tracking service: {e}")
 
 # Initialize FastAPI app
 app = FastAPI(

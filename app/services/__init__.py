@@ -9,6 +9,7 @@ from .alerter_manager import alerter_manager
 from .alerter_config import AlerterConfig
 from .telegram_service import telegram_service
 from .telegram_chat_discovery import chat_discovery
+from .order_tracking_service import order_tracking_service
 
 __all__ = [
     "ibkr_service", 
@@ -18,5 +19,6 @@ __all__ = [
     "alerter_manager",
     "AlerterConfig",
     "telegram_service",
-    "chat_discovery"
+    "chat_discovery",
+    "order_tracking_service"
 ]
