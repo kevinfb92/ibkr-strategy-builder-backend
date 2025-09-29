@@ -43,6 +43,7 @@ class OrderTrackingService:
         self.stats = {
             'orders_processed': 0,
             'alerts_updated': 0,
+            'alerts_removed': 0,
             'last_update': None
         }
 
@@ -140,10 +141,18 @@ class OrderTrackingService:
         
         if matched_alerts:
             for alert_info in matched_alerts:
-                success = await self._update_alert_status(alert_info, order_info)
-                if success:
-                    self.stats['alerts_updated'] += 1
-                    logger.info(f"Updated alert status for {alert_info['alerter']}: {alert_info['key']}")
+                # Check if this is a position closure
+                if self._is_closure_event(order_info, alert_info):
+                    success = await self._remove_closed_alert(alert_info, order_info)
+                    if success:
+                        self.stats['alerts_removed'] += 1
+                        logger.info(f"Removed closed alert for {alert_info['alerter']}: {alert_info['ticker']}")
+                else:
+                    # Regular fill - update status to open
+                    success = await self._update_alert_status(alert_info, order_info)
+                    if success:
+                        self.stats['alerts_updated'] += 1
+                        logger.info(f"Updated alert status for {alert_info['alerter']}: {alert_info['ticker']}")
 
         # Mark as processed
         self._processed_orders.add(order_id)
@@ -215,6 +224,105 @@ class OrderTrackingService:
                 
         return False
 
+    def _is_closure_event(self, order_info: Dict[str, Any], alert_info: Dict[str, Any]) -> bool:
+        """Check if this order represents a position closure (sell to close)"""
+        status = order_info.get('status', '')
+        raw_message = order_info.get('raw_message', {})
+        
+        # Check for explicit closure indicators
+        closure_indicators = [
+            'CLOSE', 'CLOSING', 'STC', 'SELL_TO_CLOSE', 
+            'BTC', 'BUY_TO_CLOSE', 'LIQUIDATE', 'EXIT'
+        ]
+        
+        # Check status for closure keywords
+        if any(indicator in status.upper() for indicator in closure_indicators):
+            logger.info(f"Detected closure via status: {status}")
+            return True
+            
+        # Check raw message for closure indicators
+        raw_str = str(raw_message).upper()
+        if any(indicator in raw_str for indicator in closure_indicators):
+            logger.info(f"Detected closure via raw message: {raw_str[:100]}...")
+            return True
+            
+        # Check for side/action indicators suggesting closure
+        side = (raw_message.get('side') or 
+               raw_message.get('action') or 
+               raw_message.get('orderType') or '').upper()
+        
+        if any(indicator in side for indicator in ['SELL', 'CLOSE', 'EXIT']):
+            # Additional validation: ensure this is actually closing a position
+            # For options, selling when we had a long position indicates closure
+            alert_data = alert_info.get('alert_data', {})
+            alert_side = alert_data.get('alert_details', {}).get('side', '')
+            
+            if alert_side and 'SELL' in side:
+                logger.info(f"Detected closure: SELL order for {alert_side} position")
+                return True
+                
+        return False
+
+    async def _remove_closed_alert(self, alert_info: Dict[str, Any], order_info: Dict[str, Any]) -> bool:
+        """Remove alert from storage when position is completely closed"""
+        try:
+            alerter = alert_info['alerter']
+            alert_key = alert_info['key']
+            
+            # Load current alerts
+            alerts = _load_alerts()
+            
+            # Check if the alert still exists
+            if alert_key not in alerts:
+                logger.warning(f"Alert {alert_key} not found for removal")
+                return False
+                
+            # Remove the specific ticker alert
+            if alerter in alerts and isinstance(alerts[alerter], dict):
+                # Extract ticker from alert key (assuming format like "alerter-ticker" or just "ticker")
+                ticker = alert_info.get('ticker') or order_info.get('symbol')
+                
+                if ticker and ticker in alerts[alerter]:
+                    # Log the removal with order details
+                    removed_alert = alerts[alerter][ticker].copy()
+                    removed_alert['removal_details'] = {
+                        'order_id': order_info['order_id'],
+                        'closure_status': order_info['status'],
+                        'removed_at': datetime.utcnow().isoformat(),
+                        'reason': 'position_closed'
+                    }
+                    
+                    # Remove the alert
+                    del alerts[alerter][ticker]
+                    
+                    # If this was the last alert for this alerter, we could optionally clean up
+                    # the alerter entry entirely, but keeping it for historical purposes
+                    
+                    # Save updated alerts
+                    _save_alerts(alerts)
+                    
+                    logger.info(f"Removed closed position alert: {alerter} -> {ticker}")
+                    logger.info(f"Closure order: {order_info['order_id']} ({order_info['status']})")
+                    
+                    # Also remove from alerter stock storage if applicable
+                    try:
+                        stored_contract = alerter_stock_storage.get_contract(alerter)
+                        if stored_contract and stored_contract.get('symbol') == ticker:
+                            # We could remove the contract, but for now just log it
+                            logger.info(f"Note: Contract storage for {alerter}:{ticker} may need cleanup")
+                    except Exception as e:
+                        logger.warning(f"Error checking contract storage: {e}")
+                    
+                    return True
+                else:
+                    logger.warning(f"Ticker {ticker} not found in {alerter} alerts")
+                    
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to remove closed alert: {e}")
+            return False
+
     async def _find_matching_alerts(self, order_info: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Find alerts that match this order"""
         matched_alerts = []
@@ -223,53 +331,51 @@ class OrderTrackingService:
         if not symbol:
             return matched_alerts
 
-        # Search through all alerters' stored data
-        alerters = ['RealDayTrading', 'Demslayer', 'ProfAndKian', 'RobinDaHood']
+        # Load alerts and search through all alerters
+        alerts = _load_alerts()
+        alerter_keys = ['real-day-trading', 'demslayer', 'prof-and-kian-alerts', 'robindahood-alerts']
         
-        for alerter in alerters:
+        for alerter_key in alerter_keys:
             try:
-                # Get stored contracts for this alerter
-                stored_contract = alerter_stock_storage.get_contract(alerter)
-                if not stored_contract:
+                if alerter_key not in alerts:
                     continue
                     
-                # Check if symbol matches
-                if stored_contract.get('symbol') != symbol:
+                alerter_data = alerts[alerter_key]
+                if not isinstance(alerter_data, dict):
                     continue
                     
-                # For options, also check strike and expiry if available
-                if order_info.get('strike') and stored_contract.get('strike'):
-                    if abs(float(order_info['strike']) - float(stored_contract['strike'])) > 0.01:
-                        continue
-                        
-                # Get the alert data
-                alerts = _load_alerts()
-                alert_key = None
-                
-                # Find the alert key for this alerter/symbol combination
-                for key, alert_data in alerts.items():
-                    if (alert_data.get('alerter') == alerter and 
-                        alert_data.get('ticker') == symbol):
-                        alert_key = key
-                        break
-                
-                if alert_key:
+                # Check if this symbol exists in this alerter's alerts
+                if symbol in alerter_data:
+                    ticker_alert = alerter_data[symbol]
+                    
+                    # For options, also check strike if available
+                    if order_info.get('strike') and ticker_alert.get('alert_details', {}).get('strike'):
+                        try:
+                            order_strike = float(order_info['strike'])
+                            alert_strike = float(ticker_alert['alert_details']['strike'])
+                            if abs(order_strike - alert_strike) > 0.01:
+                                continue
+                        except (ValueError, TypeError):
+                            # If we can't compare strikes, still match by symbol
+                            pass
+                            
                     matched_alerts.append({
-                        'alerter': alerter,
-                        'key': alert_key,
-                        'alert_data': alerts[alert_key],
-                        'stored_contract': stored_contract
+                        'alerter': alerter_key,
+                        'ticker': symbol,
+                        'key': f"{alerter_key}-{symbol}",  # Construct a logical key
+                        'alert_data': ticker_alert
                     })
                     
             except Exception as e:
-                logger.warning(f"Error checking alerter {alerter}: {e}")
+                logger.warning(f"Error checking alerter {alerter_key}: {e}")
                 
         return matched_alerts
 
     async def _update_alert_status(self, alert_info: Dict[str, Any], order_info: Dict[str, Any]) -> bool:
         """Update alert status to open=true"""
         try:
-            alert_key = alert_info['key']
+            alerter = alert_info['alerter']
+            ticker = alert_info['ticker'] 
             alert_data = alert_info['alert_data'].copy()
             
             # Set alert as open
@@ -281,12 +387,14 @@ class OrderTrackingService:
                 'updated_at': datetime.utcnow().isoformat()
             }
             
-            # Update the alert
+            # Update the alert in the nested structure
             alerts = _load_alerts()
-            alerts[alert_key] = alert_data
+            if alerter not in alerts:
+                alerts[alerter] = {}
+            alerts[alerter][ticker] = alert_data
             _save_alerts(alerts)
             
-            logger.info(f"Set alert {alert_key} to open=true (order {order_info['order_id']} filled)")
+            logger.info(f"Set alert {alerter}:{ticker} to open=true (order {order_info['order_id']} filled)")
             return True
             
         except Exception as e:
