@@ -132,6 +132,27 @@ def _extract_expiry(message: str, strike_position: int) -> str:
     # Default to current date (0DTE)
     return datetime.now().strftime("%m/%d")
 
+def _compact_discord_links(message: str) -> str:
+    """
+    Replace long Discord links with compact versions
+    Converts: https://discord.com/channels/123/456/789
+    To: <a href='https://discord.com/channels/123/456/789'>🔗 Discord</a>
+    """
+    # Pattern to match Discord links
+    discord_pattern = r'https://discord\.com/channels/\d+/\d+/\d+'
+    
+    def replace_link(match):
+        url = match.group(0)
+        return f"<a href='{url}'>🔗 Discord</a>"
+    
+    # Replace Discord links with compact versions
+    compacted = re.sub(discord_pattern, replace_link, message)
+    
+    # Also handle "See it here:" prefix that often appears before Discord links
+    compacted = re.sub(r'See it here:\s*<a href=', '<a href=', compacted)
+    
+    return compacted
+
 class LiteRealDayTradingHandler:
     """Lite handler for Real Day Trading notifications"""
     
@@ -353,7 +374,7 @@ class LiteRealDayTradingHandler:
             side_short = "C" if side == "CALL" else "P"
             emoji = "🔴 📉" if side == "PUT" else "🟢 📈"
             
-            telegram_message = f"🚨 {self.alerter_name.upper()}\n{message}\n\n"
+            telegram_message = f"🚨 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             formatted_expiry = _format_expiry_for_display(expiry)
             telegram_message += f"{emoji} {ticker} - {int(strike) if strike.is_integer() else strike}{side_short} - {formatted_expiry}"
             
@@ -381,7 +402,7 @@ class LiteRealDayTradingHandler:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            telegram_message = f"🟡 {self.alerter_name.upper()}\n{message}\n\n"
+            telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
@@ -622,7 +643,7 @@ class LiteDemslayerHandler:
             side_short = "C" if side == "CALL" else "P"
             emoji = "🔴 📉" if side == "PUT" else "🟢 📈"
             
-            telegram_message = f"🚨 {self.alerter_name.upper()}\n{message}\n\n"
+            telegram_message = f"🚨 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             formatted_expiry = _format_expiry_for_display(expiry)
             telegram_message += f"{emoji} {ticker} - {int(strike) if strike.is_integer() else strike}{side_short} - {formatted_expiry}"
             
@@ -650,7 +671,7 @@ class LiteDemslayerHandler:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            telegram_message = f"🟡 {self.alerter_name.upper()}\n{message}\n\n"
+            telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
@@ -816,7 +837,7 @@ class LiteProfAndKianHandler:
             side_short = "C" if side == "CALL" else "P"
             emoji = "🔴 📉" if side == "PUT" else "🟢 📈"
             
-            telegram_message = f"🚨 {self.alerter_name.upper()}\n{message}\n\n"
+            telegram_message = f"🚨 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             formatted_expiry = _format_expiry_for_display(expiry)
             telegram_message += f"{emoji} {ticker} - {int(strike) if strike.is_integer() else strike}{side_short} - {formatted_expiry}"
             
@@ -844,7 +865,7 @@ class LiteProfAndKianHandler:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            telegram_message = f"🟡 {self.alerter_name.upper()}\n{message}\n\n"
+            telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
@@ -1010,7 +1031,7 @@ class LiteRobinDaHoodHandler:
             side_short = "C" if side == "CALL" else "P"
             emoji = "🔴 📉" if side == "PUT" else "🟢 📈"
             
-            telegram_message = f"🚨 {self.alerter_name.upper()}\n{message}\n\n"
+            telegram_message = f"🚨 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             formatted_expiry = _format_expiry_for_display(expiry)
             telegram_message += f"{emoji} {ticker} - {int(strike) if strike.is_integer() else strike}{side_short} - {formatted_expiry}"
             
@@ -1038,7 +1059,7 @@ class LiteRobinDaHoodHandler:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            telegram_message = f"🟡 {self.alerter_name.upper()}\n{message}\n\n"
+            telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():

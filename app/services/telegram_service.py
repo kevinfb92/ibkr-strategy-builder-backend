@@ -632,7 +632,8 @@ class TelegramService:
             sent_message = await self.bot.send_message(
                 chat_id=chat_id_to_use,
                 text=message,
-                parse_mode='HTML'
+                parse_mode='HTML',
+                disable_web_page_preview=True
             )
             
             logger.info(f"Sent trading alert to Telegram. Message ID: {message_id}")
@@ -1565,7 +1566,8 @@ class TelegramService:
                 chat_id=final_chat_id,
                 text=alert_html,
                 reply_markup=reply_markup,
-                parse_mode='HTML'
+                parse_mode='HTML',
+                disable_web_page_preview=True
             )
             
             logger.info(f"Sent trading alert to Telegram. Message ID: {message_id}")
