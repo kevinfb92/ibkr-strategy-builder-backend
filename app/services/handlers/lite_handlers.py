@@ -387,7 +387,6 @@ class LiteRealDayTradingHandler:
             for ticker, alert_data in alerter_alerts.items():
                 if alert_data.get("open") and alert_data.get("option_conid"):
                     details = alert_data["alert_details"]
-                    emoji = "🔴" if details["side"] == "P" else "🟢"
                     
                     option_conid = alert_data["option_conid"]
                     quote_link = f"https://www.interactivebrokers.ie/portal/?loginType=2&action=ACCT_MGMT_MAIN&clt=0&RL=1&locale=es_ES#/quote/{option_conid}?source=onebar&u=false"
@@ -395,7 +394,7 @@ class LiteRealDayTradingHandler:
                     # Format expiry date for readability
                     formatted_expiry = _format_expiry_for_display(details['expiry'])
                     
-                    telegram_message += f"{emoji} {ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
+                    telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
             
             # Send via telegram service
             result = await telegram_service.send_lite_alert(telegram_message)
@@ -657,7 +656,6 @@ class LiteDemslayerHandler:
             for ticker, alert_data in alerter_alerts.items():
                 if alert_data.get("open") and alert_data.get("option_conid"):
                     details = alert_data["alert_details"]
-                    emoji = "🔴" if details["side"] == "P" else "🟢"
                     
                     option_conid = alert_data["option_conid"]
                     quote_link = f"https://www.interactivebrokers.ie/portal/?loginType=2&action=ACCT_MGMT_MAIN&clt=0&RL=1&locale=es_ES#/quote/{option_conid}?source=onebar&u=false"
@@ -665,7 +663,7 @@ class LiteDemslayerHandler:
                     # Format expiry date for readability
                     formatted_expiry = _format_expiry_for_display(details['expiry'])
                     
-                    telegram_message += f"{emoji} {ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
+                    telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
             
             # Send via telegram service
             result = await telegram_service.send_lite_alert(telegram_message)
@@ -852,7 +850,6 @@ class LiteProfAndKianHandler:
             for ticker, alert_data in alerter_alerts.items():
                 if alert_data.get("open") and alert_data.get("option_conid"):
                     details = alert_data["alert_details"]
-                    emoji = "🔴" if details["side"] == "P" else "🟢"
                     
                     option_conid = alert_data["option_conid"]
                     quote_link = f"https://www.interactivebrokers.ie/portal/?loginType=2&action=ACCT_MGMT_MAIN&clt=0&RL=1&locale=es_ES#/quote/{option_conid}?source=onebar&u=false"
@@ -860,7 +857,7 @@ class LiteProfAndKianHandler:
                     # Format expiry date for readability
                     formatted_expiry = _format_expiry_for_display(details['expiry'])
                     
-                    telegram_message += f"{emoji} {ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
+                    telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
             
             # Send via telegram service
             result = await telegram_service.send_lite_alert(telegram_message)
@@ -1047,7 +1044,6 @@ class LiteRobinDaHoodHandler:
             for ticker, alert_data in alerter_alerts.items():
                 if alert_data.get("open") and alert_data.get("option_conid"):
                     details = alert_data["alert_details"]
-                    emoji = "🔴" if details["side"] == "P" else "🟢"
                     
                     option_conid = alert_data["option_conid"]
                     quote_link = f"https://www.interactivebrokers.ie/portal/?loginType=2&action=ACCT_MGMT_MAIN&clt=0&RL=1&locale=es_ES#/quote/{option_conid}?source=onebar&u=false"
@@ -1055,7 +1051,7 @@ class LiteRobinDaHoodHandler:
                     # Format expiry date for readability
                     formatted_expiry = _format_expiry_for_display(details['expiry'])
                     
-                    telegram_message += f"{emoji} {ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
+                    telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
             
             # Send via telegram service
             result = await telegram_service.send_lite_alert(telegram_message)
