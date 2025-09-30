@@ -463,14 +463,31 @@ class LiteDemslayerHandler:
                     strike_side_pattern = strike_match.group(0)  # e.g., "6000C"
                     message_after_strike = message[strike_match.end():]  # Everything after "6000C"
                     
-                    # Look for 4-digit expiry in the remaining message
-                    expiry_match = re.search(r'(\d{4})', message_after_strike)
+                    # Look for valid expiry patterns in the remaining message
+                    # Valid formats: MMDD (like 0930, 1003, 1025), MM/DD, MM-DD
+                    expiry_patterns = [
+                        r'(\d{2}/\d{2})',           # MM/DD format (10/03)
+                        r'(\d{2}-\d{2})',           # MM-DD format (10-03)
+                        r'(0\d[0-3]\d)',            # 0DTE format starting with 0 (0930, 1003, etc.)
+                        r'(1[0-2][0-3]\d)',         # Month 10-12 format (1003, 1025, 1201, etc.)
+                    ]
                     
-                    if expiry_match:
-                        # Found explicit expiry
-                        expiry = expiry_match.group(1)
-                    else:
-                        # No expiry found - default to 0DTE (current day)
+                    expiry = None
+                    for pattern in expiry_patterns:
+                        expiry_match = re.search(pattern, message_after_strike)
+                        if expiry_match:
+                            raw_expiry = expiry_match.group(1)
+                            # Normalize to MMDD format
+                            if '/' in raw_expiry:
+                                expiry = raw_expiry.replace('/', '')
+                            elif '-' in raw_expiry:
+                                expiry = raw_expiry.replace('-', '')
+                            else:
+                                expiry = raw_expiry
+                            break
+                    
+                    # If no valid expiry found, default to 0DTE (current day)
+                    if not expiry:
                         # For testing: if weekend, use Monday's date
                         today = datetime.now()
                         if today.weekday() >= 5:  # Saturday (5) or Sunday (6)
@@ -484,6 +501,9 @@ class LiteDemslayerHandler:
                             trading_date = today
                         
                         expiry = trading_date.strftime("%m%d")
+                        logger.info(f"No valid expiry found in message, defaulting to 0DTE: {expiry}")
+                    else:
+                        logger.info(f"Found valid expiry: {expiry}")
                     
                     return {
                         "ticker": "SPX",
