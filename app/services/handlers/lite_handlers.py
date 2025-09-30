@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # Path to alerts storage
 ALERTS_FILE = os.path.join(os.path.dirname(__file__), "../../../data/alerts/alerts.json")
 
+def _normalize_strike_for_regex(strike: float) -> str:
+    """Convert float strike to appropriate string format for regex matching"""
+    return str(int(strike)) if strike == int(strike) else str(strike)
+
 def _load_alerts() -> Dict:
     """Load alerts from JSON file"""
     try:
@@ -52,8 +56,9 @@ async def _detect_buy_alert(message: str) -> Optional[Dict[str, Any]]:
         # Look for stock symbol immediately before the strike
         before_strike = message[:match.start()].strip()
         
-        # Find the last word before the strike (should be the stock symbol)
-        words_before = re.findall(r'\b([A-Z]{1,5})\b', before_strike.upper())
+        # Find words that are already in ALL CAPS (stock tickers are typically all caps)
+        # Don't convert to uppercase first - only match words already in all caps
+        words_before = re.findall(r'\b([A-Z]{1,5})\b', before_strike)
         
         if words_before:
             potential_ticker = words_before[-1]  # Last word before strike
@@ -107,30 +112,66 @@ def _format_expiry_for_display(expiry: str) -> str:
         # If any parsing fails, return the original expiry
         return expiry
 
-def _extract_expiry(message: str, strike_position: int) -> str:
+def _extract_expiry(message: str, strike_position: int, ticker: str = None) -> str:
     """Extract expiry from message (must come after strike position)"""
     # Look for expiry patterns after the strike position
     message_after_strike = message[strike_position:]
     
+    # Remove URLs to avoid false matches from Discord IDs, etc.
+    # Remove any text that looks like a URL (starts with http/https)
+    cleaned_message = re.sub(r'https?://[^\s]+', '', message_after_strike)
+    
     # Common expiry patterns: 10/25, OCT25, 1025, etc.
+    # Look for patterns that are likely expiry dates (not random number sequences)
     expiry_patterns = [
-        r'(\d{1,2})/(\d{1,2})',  # 10/25
-        r'(\d{4})',              # 1025
-        r'([A-Z]{3})(\d{2})'     # OCT25
+        # MM/DD format - but be more restrictive to avoid false matches
+        r'\b(\d{1,2})/(\d{1,2})\b',  # 10/25 (word boundaries to avoid URL fragments)
+        # Month abbreviations with 2-digit year
+        r'\b([A-Z]{3})(\d{2})\b',     # OCT25
+        # 4-digit MMDD format - but only if it looks like a valid date
+        r'\b(\d{4})\b'                # 1025 (will validate if it's a real date)
     ]
     
     for pattern in expiry_patterns:
-        match = re.search(pattern, message_after_strike.upper())
+        match = re.search(pattern, cleaned_message.upper())
         if match:
-            # Format as MM/DD for consistency
-            if '/' in match.group(0):
-                return match.group(0)
-            # Convert other formats to MM/DD if needed
-            # For now, return as is
-            return match.group(0)
+            matched_text = match.group(0)
+            
+            # Additional validation for MM/DD format
+            if '/' in matched_text:
+                parts = matched_text.split('/')
+                try:
+                    month, day = int(parts[0]), int(parts[1])
+                    # Validate it's a reasonable date (month 1-12, day 1-31)
+                    if 1 <= month <= 12 and 1 <= day <= 31:
+                        return matched_text
+                except (ValueError, IndexError):
+                    continue
+            
+            # Additional validation for 4-digit format
+            elif matched_text.isdigit() and len(matched_text) == 4:
+                try:
+                    month, day = int(matched_text[:2]), int(matched_text[2:])
+                    # Validate it's a reasonable date
+                    if 1 <= month <= 12 and 1 <= day <= 31:
+                        # Convert to MM/DD format for consistency
+                        return f"{month:02d}/{day:02d}"
+                except ValueError:
+                    continue
+            
+            # Month abbreviation format (OCT25, etc.)
+            else:
+                return matched_text
     
     # Default to current date (0DTE)
-    return datetime.now().strftime("%m/%d")
+    # This is especially important for SPY/SPX which have daily expirations
+    current_date = datetime.now().strftime("%m/%d")
+    
+    # Log the default behavior for debugging
+    if ticker and ticker.upper() in ['SPY', 'SPX']:
+        logger.debug(f"No expiry found for {ticker}, defaulting to 0DTE: {current_date}")
+    
+    return current_date
 
 def _compact_discord_links(message: str) -> str:
     """
@@ -223,20 +264,16 @@ class LiteRealDayTradingHandler:
                 logger.debug(f"Could not verify {ticker} as stock: {e}")
                 return None
             
-            # Get current stock price to find closest ITM strike
+            # Get current stock price and find closest ITM strike efficiently
             try:
-                # For now, we'll use a default strike - we can enhance this later
-                # to get the actual stock price and calculate closest ITM
-                # This would require additional IBKR API calls
-                current_price = 100.0  # Placeholder - should get actual price
+                # stock_conid already available from above
                 
-                # Calculate closest ITM strike (simplified)
-                if side == "CALL":
-                    # For calls, ITM = strike below current price
-                    strike = round(current_price * 0.95)  # 5% below current price
-                else:
-                    # For puts, ITM = strike above current price  
-                    strike = round(current_price * 1.05)  # 5% above current price
+                current_price = ibkr_service.get_current_stock_price(ticker)
+                if not current_price:
+                    logger.error(f"Could not get current price for {ticker}")
+                    return None
+                
+                logger.debug(f"Current price for {ticker}: ${current_price}")
                 
                 # Use nearest Friday expiry (simplified - assume weekly options)
                 today = datetime.now()
@@ -245,14 +282,31 @@ class LiteRealDayTradingHandler:
                     days_to_friday = 7
                 
                 expiry_date = today + timedelta(days=days_to_friday)
-                expiry = expiry_date.strftime("%m%d")  # Format as MMDD
+                expiry_mmdd = expiry_date.strftime("%m%d")  # Format as MMDD for display
+                expiry_yyyymmdd = expiry_date.strftime("%Y%m%d")  # Format as YYYYMMDD for IBKR API
+                
+                # Get closest ITM strike from actual available strikes
+                # Pass stock_conid to avoid redundant lookups
+                strike = await self._get_closest_itm_strike_efficient(
+                    ticker=ticker,
+                    stock_conid=stock_conid,
+                    current_price=current_price,
+                    side=side,
+                    expiry_yyyymmdd=expiry_yyyymmdd
+                )
+                
+                if not strike:
+                    logger.error(f"Could not find available ITM {side} strike for {ticker}")
+                    return None
+                
+                logger.debug(f"Found closest ITM {side} strike for {ticker}: ${strike} (current: ${current_price})")
                 
                 return {
                     "ticker": ticker,
                     "strike": float(strike),
                     "side": side,
                     "stock_conid": stock_conid,
-                    "expiry": expiry
+                    "expiry": expiry_mmdd
                 }
                 
             except Exception as e:
@@ -263,6 +317,73 @@ class LiteRealDayTradingHandler:
             logger.error(f"Error detecting RDT buy alert: {e}")
             return None
     
+    async def _get_closest_itm_strike_efficient(self, ticker: str, stock_conid: int, current_price: float, side: str, expiry_yyyymmdd: str) -> Optional[float]:
+        """
+        Efficiently get closest ITM strike by reusing stock_conid to avoid redundant API calls
+        """
+        try:
+            logger.debug(f"Finding closest ITM {side} strike for {ticker} @ ${current_price}, expiry {expiry_yyyymmdd}")
+            
+            # Use the existing stock_conid instead of looking it up again
+            # Convert YYYYMMDD to MMMYY format for IBKR API
+            from datetime import datetime
+            expiry_date = datetime.strptime(expiry_yyyymmdd, "%Y%m%d")
+            month_abbr = expiry_date.strftime("%b").upper()  # OCT
+            year_abbr = expiry_date.strftime("%y")  # 25
+            month_year = f"{month_abbr}{year_abbr}"  # OCT25
+            
+            logger.debug(f"Converted expiry {expiry_yyyymmdd} to month format {month_year}")
+            
+            # Get available strikes using the existing stock_conid
+            strikes_result = ibkr_service.client.search_strikes_by_conid(
+                conid=str(stock_conid),
+                sec_type="OPT",
+                month=month_year
+            )
+            
+            if not strikes_result or not hasattr(strikes_result, 'data') or not strikes_result.data:
+                logger.warning(f"No strikes data found for {ticker}")
+                return None
+            
+            # Extract and process strikes
+            strikes = []
+            strikes_data = strikes_result.data
+            
+            if isinstance(strikes_data, dict):
+                # Handle the case where data is a dict with 'call' and 'put' keys
+                if 'call' in strikes_data:
+                    strikes.extend(strikes_data['call'])
+                if 'put' in strikes_data:
+                    strikes.extend(strikes_data['put'])
+            
+            strikes = sorted(list(set(strikes)))  # Remove duplicates and sort
+            logger.debug(f"Available strikes: {strikes[:10]}...{strikes[-10:]} (showing first/last 10)")
+            
+            if side == "CALL":
+                # For calls, ITM = strike below current price
+                itm_strikes = [s for s in strikes if s < current_price]
+                if itm_strikes:
+                    closest_strike = max(itm_strikes)
+                    logger.debug(f"Closest ITM call strike: ${closest_strike}")
+                    return closest_strike
+                else:
+                    logger.warning(f"No ITM call strikes found below ${current_price}")
+                    return None
+            else:  # PUT
+                # For puts, ITM = strike above current price
+                itm_strikes = [s for s in strikes if s > current_price]
+                if itm_strikes:
+                    closest_strike = min(itm_strikes)
+                    logger.debug(f"Closest ITM put strike: ${closest_strike}")
+                    return closest_strike
+                else:
+                    logger.warning(f"No ITM put strikes found above ${current_price}")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"Could not find closest ITM strike for {ticker}: {e}")
+            return None
+
     async def _process_buy_alert(self, buy_info: Dict[str, Any], message: str, title: str) -> Dict[str, Any]:
         """Process a BUY alert - get CONIDs, store alert, send Telegram"""
         try:
@@ -276,9 +397,9 @@ class LiteRealDayTradingHandler:
                 expiry = buy_info["expiry"]
             else:
                 # Extract expiry (default to today if not found) - for backward compatibility
-                strike_match = re.search(rf'{strike}[CP]', message.upper())
+                strike_match = re.search(rf'{_normalize_strike_for_regex(strike)}[CP]', message.upper())
                 strike_pos = strike_match.end() if strike_match else len(message)
-                expiry = _extract_expiry(message, strike_pos)
+                expiry = _extract_expiry(message, strike_pos, ticker)
             
             # Get option contract CONID
             option_conid = None
@@ -739,7 +860,7 @@ class LiteProfAndKianHandler:
             stock_conid = buy_info["stock_conid"]
             
             # Extract expiry (default to today if not found)
-            strike_match = re.search(rf'{strike}[CP]', message.upper())
+            strike_match = re.search(rf'{_normalize_strike_for_regex(strike)}[CP]', message.upper())
             strike_pos = strike_match.end() if strike_match else len(message)
             expiry = _extract_expiry(message, strike_pos)
             
@@ -933,7 +1054,7 @@ class LiteRobinDaHoodHandler:
             stock_conid = buy_info["stock_conid"]
             
             # Extract expiry (default to today if not found)
-            strike_match = re.search(rf'{strike}[CP]', message.upper())
+            strike_match = re.search(rf'{_normalize_strike_for_regex(strike)}[CP]', message.upper())
             strike_pos = strike_match.end() if strike_match else len(message)
             expiry = _extract_expiry(message, strike_pos)
             

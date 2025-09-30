@@ -1043,10 +1043,18 @@ class IBKRService:
                 return None
 
             # If expiry not provided, pick the closest available expiration
+            # Special case: SPY and SPX should always default to 0DTE (same day)
             if not expiry:
                 try:
-                    expiry = self._get_closest_expiration(symbol)
-                    print(f"DEBUG: No expiry provided, using closest expiry {expiry}")
+                    if symbol.upper() in ['SPY', 'SPX']:
+                        # For SPY/SPX, always use 0DTE (current date)
+                        from datetime import datetime
+                        expiry = datetime.now().strftime("%m/%d")
+                        print(f"DEBUG: SPY/SPX detected, using 0DTE expiry {expiry}")
+                    else:
+                        # For other symbols, use closest expiration (typically Friday)
+                        expiry = self._get_closest_expiration(symbol)
+                        print(f"DEBUG: No expiry provided, using closest expiry {expiry}")
                 except Exception:
                     expiry = None
 
@@ -1694,10 +1702,19 @@ class IBKRService:
             
             # Handle expiration date
             if expiration_date == "closest":
-                # For now, use a default - this should be enhanced to find actual closest expiration
-                expiry = self._get_closest_expiration(ticker)
-                result["used_expiration"] = expiry
-                result["expiration_source"] = "closest_available"
+                # Special case: SPY and SPX should always default to 0DTE (same day)
+                if ticker.upper() in ['SPY', 'SPX']:
+                    # For SPY/SPX, always use 0DTE (current date)
+                    from datetime import datetime
+                    expiry = datetime.now().strftime("%m/%d")
+                    result["used_expiration"] = expiry
+                    result["expiration_source"] = "0dte_spy_spx"
+                    print(f"DEBUG: SPY/SPX detected for closest expiry, using 0DTE {expiry}")
+                else:
+                    # For other symbols, use closest expiration (typically Friday)
+                    expiry = self._get_closest_expiration(ticker)
+                    result["used_expiration"] = expiry
+                    result["expiration_source"] = "closest_available"
             else:
                 # Convert M/D format to YYYYMMDD
                 expiry = self._convert_date_format(expiration_date)
@@ -2669,6 +2686,58 @@ class IBKRService:
         except Exception as e:
             print(f"ERROR: Could not get available strikes for {ticker}: {e}")
             return []
+
+    def get_closest_itm_strike_from_available(self, ticker: str, current_price: float, side: str, expiry: str) -> Optional[float]:
+        """
+        Get the closest ITM strike from actual available strikes
+        
+        Args:
+            ticker: Stock symbol (e.g., "TSLA")
+            current_price: Current stock price
+            side: "CALL" or "PUT"
+            expiry: Expiration date in YYYYMMDD format
+            
+        Returns:
+            Closest ITM strike price as float, or None if not found
+        """
+        try:
+            print(f"DEBUG: Finding closest ITM {side} strike for {ticker} @ ${current_price}, expiry {expiry}")
+            
+            # Get available strikes for this ticker and expiration
+            available_strikes = self.get_available_strikes(ticker, expiry)
+            
+            if not available_strikes:
+                print(f"WARNING: No available strikes found for {ticker}")
+                return None
+            
+            print(f"DEBUG: Available strikes: {available_strikes}")
+            
+            if side == "CALL":
+                # For calls, ITM = strike below current price
+                # Find the highest strike that's still below current price
+                itm_strikes = [s for s in available_strikes if s < current_price]
+                if itm_strikes:
+                    closest_strike = max(itm_strikes)
+                    print(f"DEBUG: Closest ITM call strike: ${closest_strike}")
+                    return closest_strike
+                else:
+                    print(f"WARNING: No ITM call strikes found below ${current_price}")
+                    return None
+            else:  # PUT
+                # For puts, ITM = strike above current price
+                # Find the lowest strike that's still above current price
+                itm_strikes = [s for s in available_strikes if s > current_price]
+                if itm_strikes:
+                    closest_strike = min(itm_strikes)
+                    print(f"DEBUG: Closest ITM put strike: ${closest_strike}")
+                    return closest_strike
+                else:
+                    print(f"WARNING: No ITM put strikes found above ${current_price}")
+                    return None
+                    
+        except Exception as e:
+            print(f"ERROR: Could not find closest ITM strike for {ticker}: {e}")
+            return None
 
     def _get_closest_itm_strike(self, ticker: str, action: str, option_type: str, expiry: str = None) -> float:
         """
