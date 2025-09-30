@@ -4,9 +4,10 @@ Notification Service for handling incoming notifications
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 import logging
+import hashlib
 
 from .alerter_manager import alerter_manager
 from .handlers.lite_handlers import (
@@ -44,6 +45,9 @@ class NotificationService:
     
     def __init__(self):
         self.notifications: List[Notification] = []
+        # Add a cache to prevent duplicate processing
+        self._recent_notifications = {}  # Simple cache to detect duplicates
+        
         # Initialize lite handlers
         self.lite_handlers = {
             'real-day-trading': LiteRealDayTradingHandler(),
@@ -73,6 +77,31 @@ class NotificationService:
             
             if not title and not ticker and not message:
                 raise ValueError("All fields cannot be empty")
+            
+            # Create a simple hash for duplicate detection
+            content_hash = hashlib.md5(f"{title}_{ticker}_{message}".encode()).hexdigest()
+            current_time = datetime.now()
+            
+            # Check if we've seen this notification recently (within 30 seconds)
+            if content_hash in self._recent_notifications:
+                last_seen = self._recent_notifications[content_hash]
+                if (current_time - last_seen).total_seconds() < 30:
+                    logger.info(f"Skipping duplicate notification: {content_hash[:8]}")
+                    return {
+                        "success": True,
+                        "message": "Duplicate notification skipped",
+                        "data": {"skipped": True, "reason": "duplicate"}
+                    }
+            
+            # Update cache
+            self._recent_notifications[content_hash] = current_time
+            
+            # Clean old entries from cache (keep only last 5 minutes)
+            cutoff_time = current_time - timedelta(minutes=5)
+            self._recent_notifications = {
+                k: v for k, v in self._recent_notifications.items() 
+                if v > cutoff_time
+            }
             
             # Create notification object for storage
             new_notification = Notification(
@@ -222,69 +251,57 @@ class NotificationService:
             # Detect alerter from title or message
             detected_alerter = None
             
-            # Check title first for direct alerter name
+            # Combine all text fields for comprehensive matching
+            all_text = f"{title} {ticker} {message}".lower() if all([title, ticker, message]) else ""
+            
+            # Enhanced detection logic - check all fields for alerter patterns
             title_lower = title.lower() if title else ""
+            ticker_lower = ticker.lower() if ticker else ""
+            message_lower = message.lower() if message else ""
+            
             for alerter_name in self.lite_handlers.keys():
-                # More flexible matching for demslayer
-                if alerter_name == 'demslayer-spx-alerts':
-                    if 'demslayer' in title_lower or 'demspx' in title_lower:
+                # Check for robindahood-alerts patterns
+                if alerter_name == 'robindahood-alerts':
+                    robindahood_patterns = [
+                        'robindahood-alerts', 'robin da hood', 'robindahood', 
+                        'robin hood', '🌟robindahood-alerts'
+                    ]
+                    if any(pattern in all_text for pattern in robindahood_patterns):
                         detected_alerter = alerter_name
                         break
-                # Special matching for real-day-trading
+                
+                # Check for demslayer patterns
+                elif alerter_name == 'demslayer-spx-alerts':
+                    demslayer_patterns = ['demslayer', 'demspx', 'demslayer-spx-alerts']
+                    if any(pattern in all_text for pattern in demslayer_patterns):
+                        detected_alerter = alerter_name
+                        break
+                
+                # Check for real-day-trading patterns  
                 elif alerter_name == 'real-day-trading':
-                    if 'real day trading' in title_lower or 'realdaytrading' in title_lower:
+                    rdt_patterns = ['real day trading', 'realdaytrading', 'real-day-trading']
+                    if any(pattern in all_text for pattern in rdt_patterns):
                         detected_alerter = alerter_name
                         break
-                # Special matching for robindahood-alerts
-                elif alerter_name == 'robindahood-alerts':
-                    if 'robin da hood' in title_lower or 'robindahood' in title_lower or 'robin hood' in title_lower:
+                
+                # Check for prof-and-kian patterns
+                elif alerter_name == 'prof-and-kian':
+                    pak_patterns = ['prof and kian', 'profandkian', 'prof-and-kian']
+                    if any(pattern in all_text for pattern in pak_patterns):
                         detected_alerter = alerter_name
                         break
-                # Standard matching for others
-                elif alerter_name.replace('-', '').replace('_', '') in title_lower.replace('-', '').replace('_', '').replace(' ', ''):
-                    detected_alerter = alerter_name
-                    break
-            
-            # Check message for alerter prefix pattern
-            if not detected_alerter and ticker:
-                ticker_lower = ticker.lower()
-                for alerter_name in self.lite_handlers.keys():
-                    # More flexible matching for demslayer
-                    if alerter_name == 'demslayer-spx-alerts':
-                        if 'demslayer' in ticker_lower or 'demspx' in ticker_lower:
-                            detected_alerter = alerter_name
-                            break
-                    # Special matching for real-day-trading
-                    elif alerter_name == 'real-day-trading':
-                        if 'real day trading' in ticker_lower or 'realdaytrading' in ticker_lower:
-                            detected_alerter = alerter_name
-                            break
-                    # Standard matching for others
-                    elif ticker_lower.startswith(alerter_name) or alerter_name.replace('-', '') in ticker_lower:
-                        detected_alerter = alerter_name
-                        break
-            
-            # Check message content for alerter patterns
-            if not detected_alerter and message:
-                message_lower = message.lower()
-                for alerter_name in self.lite_handlers.keys():
-                    # More flexible matching for demslayer
-                    if alerter_name == 'demslayer-spx-alerts':
-                        if 'demslayer' in message_lower or 'demspx' in message_lower:
-                            detected_alerter = alerter_name
-                            break
-                    # Special matching for real-day-trading
-                    elif alerter_name == 'real-day-trading':
-                        if 'real day trading' in message_lower or 'realdaytrading' in message_lower:
-                            detected_alerter = alerter_name
-                            break
-                    # Standard matching for others
-                    elif alerter_name in message_lower or alerter_name.replace('-', '') in message_lower:
+                
+                # Generic fallback - check if alerter name appears anywhere
+                else:
+                    if (alerter_name in all_text or 
+                        alerter_name.replace('-', '') in all_text.replace('-', '').replace('_', '').replace(' ', '')):
                         detected_alerter = alerter_name
                         break
             
             if detected_alerter and detected_alerter in self.lite_handlers:
                 logger.info(f"Routing notification to {detected_alerter} lite handler")
+                logger.debug(f"Detection details - Title: '{title}', Ticker: '{ticker}', Message preview: '{message[:100] if message else 'None'}...'")
+                
                 handler = self.lite_handlers[detected_alerter]
                 
                 # Process with lite handler
@@ -306,6 +323,7 @@ class NotificationService:
                 }
             else:
                 logger.info(f"No lite handler found for alerter: {detected_alerter or 'UNKNOWN'} - using generic")
+                logger.debug(f"Failed detection - Title: '{title}', Ticker: '{ticker}', Message preview: '{message[:100] if message else 'None'}...'")
                 return None
                 
         except Exception as e:
