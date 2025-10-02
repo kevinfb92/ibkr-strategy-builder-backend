@@ -649,18 +649,21 @@ class LiteRealDayTradingHandler:
         except Exception as e:
             logger.error(f"Error sending buy telegram: {e}")
             return {"success": False, "error": str(e)}
-    
+
     async def _send_update_telegram(self, message: str) -> Dict[str, Any]:
         """Send UPDATE alert Telegram message with all stored alerts"""
         try:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            # Check if there are any alerts with option quote links
-            has_option_links = any(alert_data.get("option_conid") for alert_data in alerter_alerts.values())
+            # Check if there are any open alerts with option quote links
+            has_open_option_links = any(
+                alert_data.get("option_conid") and alert_data.get("open", False)
+                for alert_data in alerter_alerts.values()
+            )
             
-            # Only show yellow circle if there are option quote links to display
-            if has_option_links:
+            # Only show yellow circle if there are open alerts with option quote links to display
+            if has_open_option_links:
                 telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             else:
                 telegram_message = f"{self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
@@ -672,7 +675,7 @@ class LiteRealDayTradingHandler:
                     
                     option_conid = alert_data["option_conid"]
                     quote_link = f"https://www.interactivebrokers.ie/portal/?loginType=2&action=ACCT_MGMT_MAIN&clt=0&RL=1&locale=es_ES#/quote/{option_conid}?source=onebar&u=false"
-                    
+
                     # Format expiry date for readability
                     formatted_expiry = _format_expiry_for_display(details['expiry'])
                     
@@ -943,18 +946,21 @@ class LiteDemslayerHandler:
         except Exception as e:
             logger.error(f"Error sending buy telegram: {e}")
             return {"success": False, "error": str(e)}
-    
+
     async def _send_update_telegram(self, message: str) -> Dict[str, Any]:
         """Send UPDATE alert Telegram message with all stored alerts"""
         try:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            # Check if there are any alerts with option quote links
-            has_option_links = any(alert_data.get("option_conid") for alert_data in alerter_alerts.values())
+            # Check if there are any open alerts with option quote links
+            has_open_option_links = any(
+                alert_data.get("option_conid") and alert_data.get("open", False)
+                for alert_data in alerter_alerts.values()
+            )
             
-            # Only show yellow circle if there are option quote links to display
-            if has_option_links:
+            # Only show yellow circle if there are open alerts with option quote links to display
+            if has_open_option_links:
                 telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             else:
                 telegram_message = f"{self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
@@ -966,7 +972,7 @@ class LiteDemslayerHandler:
                     
                     option_conid = alert_data["option_conid"]
                     quote_link = f"https://www.interactivebrokers.ie/portal/?loginType=2&action=ACCT_MGMT_MAIN&clt=0&RL=1&locale=es_ES#/quote/{option_conid}?source=onebar&u=false"
-                    
+
                     # Format expiry date for readability
                     formatted_expiry = _format_expiry_for_display(details['expiry'])
                     
@@ -1164,11 +1170,14 @@ class LiteProfAndKianHandler:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            # Check if there are any alerts with option quote links
-            has_option_links = any(alert_data.get("option_conid") for alert_data in alerter_alerts.values())
+            # Check if there are any open alerts with option quote links
+            has_open_option_links = any(
+                alert_data.get("option_conid") and alert_data.get("open", False)
+                for alert_data in alerter_alerts.values()
+            )
             
-            # Only show yellow circle if there are option quote links to display
-            if has_option_links:
+            # Only show yellow circle if there are open alerts with option quote links to display
+            if has_open_option_links:
                 telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             else:
                 telegram_message = f"{self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
@@ -1180,7 +1189,7 @@ class LiteProfAndKianHandler:
                     
                     option_conid = alert_data["option_conid"]
                     quote_link = f"https://www.interactivebrokers.ie/portal/?loginType=2&action=ACCT_MGMT_MAIN&clt=0&RL=1&locale=es_ES#/quote/{option_conid}?source=onebar&u=false"
-                    
+
                     # Format expiry date for readability
                     formatted_expiry = _format_expiry_for_display(details['expiry'])
                     
@@ -1510,18 +1519,21 @@ class LiteRobinDaHoodHandler:
         except Exception as e:
             logger.error(f"Error sending buy telegram: {e}")
             return {"success": False, "error": str(e)}
-    
+
     async def _send_update_telegram(self, message: str) -> Dict[str, Any]:
         """Send UPDATE alert Telegram message with all stored alerts"""
         try:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            # Check if there are any alerts with option quote links
-            has_option_links = any(alert_data.get("option_conid") for alert_data in alerter_alerts.values())
+            # Check if there are any open alerts with option quote links
+            has_open_option_links = any(
+                alert_data.get("option_conid") and alert_data.get("open", False)
+                for alert_data in alerter_alerts.values()
+            )
             
-            # Only show yellow circle if there are option quote links to display
-            if has_option_links:
+            # Only show yellow circle if there are open alerts with option quote links to display
+            if has_open_option_links:
                 telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             else:
                 telegram_message = f"{self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
