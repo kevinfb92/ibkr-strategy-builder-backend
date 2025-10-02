@@ -746,12 +746,11 @@ class LiteDemslayerHandler:
                     message_after_strike = message[strike_match.end():]  # Everything after "6000C"
                     
                     # Look for valid expiry patterns in the remaining message
-                    # Valid formats: MMDD (like 0930, 1003, 1025), MM/DD, MM-DD
+                    # Valid formats: MMDD (like 1002, 1003, 1025), MM/DD, MM-DD
                     expiry_patterns = [
                         r'(\d{2}/\d{2})',           # MM/DD format (10/03)
                         r'(\d{2}-\d{2})',           # MM-DD format (10-03)
-                        r'(0\d[0-3]\d)',            # 0DTE format starting with 0 (0930, 1003, etc.)
-                        r'(1[0-2][0-3]\d)',         # Month 10-12 format (1003, 1025, 1201, etc.)
+                        r'(\d{4})',                 # MMDD format (1002, 0930, 1225, etc.)
                     ]
                     
                     expiry = None
@@ -766,7 +765,18 @@ class LiteDemslayerHandler:
                                 expiry = raw_expiry.replace('-', '')
                             else:
                                 expiry = raw_expiry
-                            break
+                            
+                            # Validate MMDD format (if 4 digits, ensure it's a valid date)
+                            if len(expiry) == 4 and expiry.isdigit():
+                                month = int(expiry[:2])
+                                day = int(expiry[2:])
+                                # Only accept valid months (01-12) and days (01-31)
+                                if 1 <= month <= 12 and 1 <= day <= 31:
+                                    break
+                                else:
+                                    expiry = None  # Invalid date, continue searching
+                            else:
+                                break  # Non-MMDD format, assume it's valid
                     
                     # If no valid expiry found, default to 0DTE (current day)
                     if not expiry:
