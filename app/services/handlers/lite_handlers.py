@@ -656,7 +656,14 @@ class LiteRealDayTradingHandler:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
+            # Check if there are any alerts with option quote links
+            has_option_links = any(alert_data.get("option_conid") for alert_data in alerter_alerts.values())
+            
+            # Only show yellow circle if there are option quote links to display
+            if has_option_links:
+                telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
+            else:
+                telegram_message = f"{self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
@@ -670,7 +677,7 @@ class LiteRealDayTradingHandler:
                     formatted_expiry = _format_expiry_for_display(details['expiry'])
                     
                     telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
-            
+
             # Send via telegram service
             result = await telegram_service.send_lite_alert(telegram_message)
             
@@ -943,7 +950,14 @@ class LiteDemslayerHandler:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
+            # Check if there are any alerts with option quote links
+            has_option_links = any(alert_data.get("option_conid") for alert_data in alerter_alerts.values())
+            
+            # Only show yellow circle if there are option quote links to display
+            if has_option_links:
+                telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
+            else:
+                telegram_message = f"{self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
@@ -957,7 +971,7 @@ class LiteDemslayerHandler:
                     formatted_expiry = _format_expiry_for_display(details['expiry'])
                     
                     telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
-            
+
             # Send via telegram service
             result = await telegram_service.send_lite_alert(telegram_message)
             
@@ -1150,7 +1164,14 @@ class LiteProfAndKianHandler:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
+            # Check if there are any alerts with option quote links
+            has_option_links = any(alert_data.get("option_conid") for alert_data in alerter_alerts.values())
+            
+            # Only show yellow circle if there are option quote links to display
+            if has_option_links:
+                telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
+            else:
+                telegram_message = f"{self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
@@ -1164,7 +1185,7 @@ class LiteProfAndKianHandler:
                     formatted_expiry = _format_expiry_for_display(details['expiry'])
                     
                     telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
-            
+
             # Send via telegram service
             result = await telegram_service.send_lite_alert(telegram_message)
             
@@ -1496,7 +1517,14 @@ class LiteRobinDaHoodHandler:
             alerts = _load_alerts()
             alerter_alerts = alerts.get(self.alerter_name, {})
             
-            telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
+            # Check if there are any alerts with option quote links
+            has_option_links = any(alert_data.get("option_conid") for alert_data in alerter_alerts.values())
+            
+            # Only show yellow circle if there are option quote links to display
+            if has_option_links:
+                telegram_message = f"🟡 {self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
+            else:
+                telegram_message = f"{self.alerter_name.upper()}\n{_compact_discord_links(message)}\n\n"
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
