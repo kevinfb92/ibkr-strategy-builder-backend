@@ -47,6 +47,51 @@ def _save_alerts(alerts: Dict) -> None:
     except Exception as e:
         logger.error(f"Error saving alerts: {e}")
 
+def _clear_all_alerts() -> Dict[str, Any]:
+    """
+    Clear ALL stored alerts completely
+    
+    WARNING: This removes all alerts regardless of their status.
+    Use with caution - intended for testing and maintenance only.
+    
+    Returns:
+        Dict with summary of cleared alerts
+    """
+    try:
+        # Load current alerts to get count before clearing
+        current_alerts = _load_alerts()
+        
+        # Count alerts by alerter before clearing
+        counts = {}
+        total_alerts = 0
+        
+        for alerter_name, alerter_data in current_alerts.items():
+            alert_count = len(alerter_data)
+            counts[alerter_name] = alert_count
+            total_alerts += alert_count
+        
+        # Clear all alerts by saving empty dict
+        empty_alerts = {}
+        _save_alerts(empty_alerts)
+        
+        logger.warning(f"CLEARED ALL ALERTS: {total_alerts} total alerts removed across {len(counts)} alerters")
+        
+        return {
+            "status": "success",
+            "total_alerts_cleared": total_alerts,
+            "alerters_cleared": len(counts),
+            "breakdown_by_alerter": counts,
+            "message": f"Successfully cleared {total_alerts} alerts from {len(counts)} alerters"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error clearing all alerts: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Failed to clear alerts"
+        }
+
 def _cleanup_stale_alerts(hours_old: int = 24) -> None:
     """
     Clean up alerts that haven't been marked as open after a configurable timespan
@@ -110,7 +155,7 @@ def _cleanup_stale_alerts(hours_old: int = 24) -> None:
 
 async def _detect_buy_alert(message: str) -> Optional[Dict[str, Any]]:
     """
-    Detect if message is a buy alert by finding strike+side and stock before it
+    Detect if message is a buy alert by finding strike+side and stock IMMEDIATELY before it
     Returns: {ticker, strike, side, stock_conid} or None
     """
     # Find all strike+side patterns (e.g., "175P", "600C", "123.5C")
@@ -120,15 +165,19 @@ async def _detect_buy_alert(message: str) -> Optional[Dict[str, Any]]:
         strike = float(match.group(1))
         side = match.group(2)
         
-        # Look for stock symbol immediately before the strike
+        # Look for stock symbol IMMEDIATELY before the strike (within the same word or separated by whitespace)
         before_strike = message[:match.start()].strip()
         
-        # Find words that are already in ALL CAPS (stock tickers are typically all caps)
-        # Don't convert to uppercase first - only match words already in all caps
-        words_before = re.findall(r'\b([A-Z]{1,5})\b', before_strike)
+        # Find the last word before the strike - must be all caps and at least 2 characters
+        # Look for pattern: [WORD][WHITESPACE][STRIKE] or [WORD][STRIKE] (no space)
+        immediate_before_match = re.search(r'\b([A-Z]{2,5})\s*$', before_strike)
         
-        if words_before:
-            potential_ticker = words_before[-1]  # Last word before strike
+        if immediate_before_match:
+            potential_ticker = immediate_before_match.group(1)
+            
+            # Additional validation: ensure ticker is at least 2 characters
+            if len(potential_ticker) < 2:
+                continue
             
             # Verify it's a real stock by getting CONID
             try:
@@ -308,29 +357,36 @@ class LiteRealDayTradingHandler:
     async def _detect_rdt_buy_alert(self, message: str) -> Optional[Dict[str, Any]]:
         """
         Detect Real Day Trading buy alerts using specific rules:
-        - Long indicates calls, Short indicates puts
-        - Stock symbols are in $NAME format
+        - Long indicates calls, Short indicates puts (can appear anywhere in message)
+        - Stock symbols are in $NAME format and must come IMMEDIATELY after Long/Short
         - Get closest ITM option with nearest expiry
         """
         try:
             message_upper = message.upper()
             
-            # Check for Long (calls) or Short (puts) at the start
+            # Look for "Long $TICKER" or "Short $TICKER" patterns anywhere in the message
+            # The stock ticker must come IMMEDIATELY after Long/Short and be at least 2 characters
+            long_pattern = r'\bLONG\s+\$([A-Z]{2,5})\b'
+            short_pattern = r'\bSHORT\s+\$([A-Z]{2,5})\b'
+            
             side = None
-            if message_upper.startswith('LONG'):
+            ticker = None
+            
+            # Check for Long pattern first
+            long_match = re.search(long_pattern, message_upper)
+            if long_match:
                 side = "CALL"
-            elif message_upper.startswith('SHORT'):
-                side = "PUT"
+                ticker = long_match.group(1)
             else:
-                return None
+                # Check for Short pattern
+                short_match = re.search(short_pattern, message_upper)
+                if short_match:
+                    side = "PUT"
+                    ticker = short_match.group(1)
             
-            # Look for stock symbol in $NAME format
-            stock_pattern = r'\$([A-Z]{1,5})'
-            match = re.search(stock_pattern, message_upper)
-            if not match:
+            # If no valid Long/Short + $TICKER pattern found, return None
+            if not side or not ticker or len(ticker) < 2:
                 return None
-            
-            ticker = match.group(1)
             
             # Verify it's a real stock by getting CONID
             try:
@@ -1130,12 +1186,16 @@ class LiteProfAndKianHandler:
         PRICE: 1.35
         EXP: 05/15/2025
         """
-        # Look for TICKER: pattern
-        ticker_match = re.search(r'TICKER:\s*([A-Z]{1,5})', message.upper())
+        # Look for TICKER: pattern - must be at least 2 characters
+        ticker_match = re.search(r'TICKER:\s*([A-Z]{2,5})', message.upper())
         if not ticker_match:
             return None
         
         ticker = ticker_match.group(1)
+        
+        # Additional validation: ensure ticker is at least 2 characters
+        if len(ticker) < 2:
+            return None
         
         # Look for STRIKE: pattern with side (C/P)
         strike_match = re.search(r'STRIKE:\s*(\d+(?:\.\d+)?)([CP])', message.upper())

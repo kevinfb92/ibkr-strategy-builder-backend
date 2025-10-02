@@ -5,7 +5,7 @@ import asyncio
 from ..services import penny_stock_watcher, penny_stock_monitor
 from ..services.ibkr_service import IBKRService, ibkr_service
 from ..services.order_tracking_service import order_tracking_service
-from ..services.handlers.lite_handlers import _cleanup_stale_alerts
+from ..services.handlers.lite_handlers import _cleanup_stale_alerts, _clear_all_alerts
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -194,5 +194,30 @@ def cleanup_stale_alerts(hours_old: int = Query(24, ge=1, le=168)) -> Dict[str, 
             "hours_old": hours_old,
             "message": f"Removed non-open alerts older than {hours_old} hours (open=true alerts preserved)"
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/alerts/clear-all")
+def clear_all_alerts() -> Dict[str, Any]:
+    """
+    ⚠️ DANGER: Clear ALL stored alerts completely
+    
+    This endpoint removes ALL alerts regardless of their status (open=true or open=false).
+    
+    ⚠️ WARNING: This is a destructive operation that cannot be undone!
+    
+    Use cases:
+    - Testing and development
+    - System maintenance/reset
+    - Emergency cleanup
+    
+    Returns detailed breakdown of what was cleared.
+    """
+    try:
+        result = _clear_all_alerts()
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["message"])
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
