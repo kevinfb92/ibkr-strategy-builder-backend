@@ -5,6 +5,7 @@ import asyncio
 from ..services import penny_stock_watcher, penny_stock_monitor
 from ..services.ibkr_service import IBKRService, ibkr_service
 from ..services.order_tracking_service import order_tracking_service
+from ..services.handlers.lite_handlers import _cleanup_stale_alerts
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -171,5 +172,27 @@ async def test_order_update(payload: Dict[str, Any]) -> Dict[str, Any]:
         # Process the message directly
         await order_tracking_service._process_order_message(payload)
         return {"status": "Test order message processed", "payload": payload}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/alerts/cleanup")
+def cleanup_stale_alerts(hours_old: int = Query(24, ge=1, le=168)) -> Dict[str, Any]:
+    """
+    Manually trigger cleanup of stale alerts that haven't been marked as open
+    
+    IMPORTANT: Only removes alerts with open=false or missing open field.
+    Never removes alerts with open=true (those are live positions removed only by order updates).
+    
+    Query params:
+    - hours_old: Remove non-open alerts older than this many hours (default: 24, max: 168/1 week)
+    """
+    try:
+        _cleanup_stale_alerts(hours_old=hours_old)
+        return {
+            "status": "Cleanup completed", 
+            "hours_old": hours_old,
+            "message": f"Removed non-open alerts older than {hours_old} hours (open=true alerts preserved)"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

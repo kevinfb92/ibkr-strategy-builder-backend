@@ -6,6 +6,7 @@ import asyncio
 import logging
 import warnings
 import os
+import time
 from urllib3.exceptions import InsecureRequestWarning
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -23,6 +24,7 @@ from .routers.internal_router import router as internal_router
 from .services import penny_stock_watcher
 from .services import penny_position_monitor
 from .services.order_tracking_service import order_tracking_service
+from .services.handlers.lite_handlers import _cleanup_stale_alerts
 
 logger = logging.getLogger(__name__)
 
@@ -45,29 +47,116 @@ class _SuppressTelegramPollingWarning(logging.Filter):
 
 logging.getLogger('app.services.telegram_service').addFilter(_SuppressTelegramPollingWarning())
 
+async def wait_for_ibkr_ready(max_attempts: int = None, delay: int = 5) -> None:
+    """
+    Wait for IBKR/ibeam to be authenticated and ready before starting the application
+    
+    Args:
+        max_attempts: Maximum number of attempts (default from env or 60 = 5 minutes)
+        delay: Delay between attempts in seconds (default: 5)
+    """
+    # Allow configuration via environment variables
+    if max_attempts is None:
+        max_attempts = int(os.getenv('IBKR_STARTUP_TIMEOUT_SECONDS', '300')) // delay  # Default 5 minutes
+    
+    logger.info(f"⏳ Waiting for IBKR to be ready and authenticated... (timeout: {max_attempts * delay}s)")
+    
+    for attempt in range(max_attempts):
+        try:
+            # Test IBKR connectivity through the existing service
+            logger.debug(f"IBKR readiness check attempt {attempt + 1}/{max_attempts}")
+            
+            # Use the existing health check method
+            health_result = ibkr_service.check_health()
+            
+            if health_result:
+                logger.debug("IBKR health check passed!")
+                
+                # Additional check: try to get accounts (indicates full authentication)
+                try:
+                    accounts_result = ibkr_service.get_accounts()
+                    if accounts_result and hasattr(accounts_result, 'data') and accounts_result.data:
+                        elapsed_time = (attempt + 1) * delay
+                        logger.info(f"✅ IBKR is ready and authenticated! (took {elapsed_time}s, found {len(accounts_result.data)} accounts)")
+                        return
+                    else:
+                        logger.debug("IBKR responding but no accounts found yet (might need 2FA)...")
+                except Exception as e:
+                    logger.debug(f"IBKR accounts check failed: {e}")
+            else:
+                logger.debug("IBKR health check failed")
+                
+        except Exception as e:
+            logger.debug(f"IBKR connectivity check failed: {e}")
+        
+        # Log progress every 10 attempts (every ~50 seconds with default delay)
+        if (attempt + 1) % 10 == 0:
+            elapsed_time = (attempt + 1) * delay
+            remaining_time = (max_attempts - attempt - 1) * delay
+            logger.info(f"⏳ Still waiting for IBKR... ({elapsed_time}s elapsed, ~{remaining_time}s remaining)")
+            logger.info("💡 If this is taking long, check if 2FA authentication is needed on your mobile device")
+        
+        await asyncio.sleep(delay)
+    
+    # If we get here, IBKR never became ready
+    total_wait_time = max_attempts * delay
+    error_msg = f"❌ IBKR failed to become ready within {total_wait_time} seconds ({max_attempts} attempts)"
+    logger.error(error_msg)
+    logger.error("🔧 Troubleshooting steps:")
+    logger.error("   1. Check if ibeam container is running: docker ps")
+    logger.error("   2. Check ibeam logs: docker logs <container_id>")
+    logger.error("   3. Verify IBKR credentials in environment variables")
+    logger.error("   4. Accept 2FA authentication on your mobile device")
+    logger.error("   5. Check if IBKR gateway is accessible at http://localhost:5000")
+    logger.error("   6. Increase timeout with IBKR_STARTUP_TIMEOUT_SECONDS env var")
+    
+    raise Exception(error_msg)
+
+async def periodic_alert_cleanup():
+    """Periodic task to clean up stale alerts"""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Run every hour
+            _cleanup_stale_alerts(hours_old=24)  # Clean alerts older than 24 hours
+        except asyncio.CancelledError:
+            logger.info("Alert cleanup task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in periodic alert cleanup: {e}")
+            await asyncio.sleep(3600)  # Continue after error
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan"""
     # Startup
-    logger.info("Starting application...")
+    logger.info("🚀 Starting IBKR Strategy Builder Backend...")
     
-    # Initialize IBKR service and check health
-    # print("Initializing IBKR service...")
-    # print('\n#### check_health ####')
-    # print(ibkr_service.check_health())
-
-    # print('\n#### tickle ####')
-    # print(ibkr_service.tickle().data)
-
-    # print('\n#### get_accounts ####')
-    # print(ibkr_service.get_accounts().data)
+    # STEP 1: Wait for IBKR to be ready before starting any services
+    try:
+        await wait_for_ibkr_ready()
+    except Exception as e:
+        logger.error(f"Failed to connect to IBKR: {e}")
+        logger.error("Application startup aborted.")
+        raise
+    
+    # STEP 2: Now that IBKR is ready, start all other services
+    logger.info("🔧 IBKR ready! Starting application services...")
+    
+    # Initialize IBKR service and check health (should work now)
+    try:
+        logger.info("Performing final IBKR health check...")
+        health_check = ibkr_service.check_health()
+        accounts = ibkr_service.get_accounts()
+        logger.info(f"✅ IBKR Health: {health_check}")
+        logger.info(f"✅ IBKR Accounts: {len(accounts.data) if accounts and accounts.data else 0} found")
+    except Exception as e:
+        logger.warning(f"IBKR final check warning: {e}")
     
     # Initialize Telegram bot in background
-    # print("\nInitializing Telegram bot...")
     try:
         # Start bot in background task so it doesn't block startup
         asyncio.create_task(telegram_service.start_bot())
-        logger.info("Telegram bot startup initiated")
+        logger.info("📱 Telegram bot startup initiated")
     except Exception as e:
         logger.error(f"Failed to start Telegram bot: {e}")
 
@@ -90,6 +179,13 @@ async def lifespan(app: FastAPI):
         logger.info("Order tracking service startup initiated")
     except Exception as e:
         logger.error(f"Failed to start order tracking service: {e}")
+    
+    # Start periodic alert cleanup
+    try:
+        asyncio.create_task(periodic_alert_cleanup())
+        logger.info("Periodic alert cleanup task initiated")
+    except Exception as e:
+        logger.error(f"Failed to start alert cleanup task: {e}")
     
     yield
     

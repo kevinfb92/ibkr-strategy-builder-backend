@@ -22,8 +22,14 @@ def _normalize_strike_for_regex(strike: float) -> str:
     return str(int(strike)) if strike == int(strike) else str(strike)
 
 def _load_alerts() -> Dict:
-    """Load alerts from JSON file"""
+    """Load alerts from JSON file and perform periodic cleanup"""
     try:
+        # Perform cleanup of stale alerts every time we load (throttled to avoid excessive cleanup)
+        # Only cleanup if it's been a while since last cleanup to avoid performance impact
+        import random
+        if random.random() < 0.1:  # 10% chance to run cleanup on each load (roughly every 10 loads)
+            _cleanup_stale_alerts()
+        
         if os.path.exists(ALERTS_FILE):
             with open(ALERTS_FILE, 'r') as f:
                 return json.load(f)
@@ -40,6 +46,67 @@ def _save_alerts(alerts: Dict) -> None:
             json.dump(alerts, f, indent=2)
     except Exception as e:
         logger.error(f"Error saving alerts: {e}")
+
+def _cleanup_stale_alerts(hours_old: int = 24) -> None:
+    """
+    Clean up alerts that haven't been marked as open after a configurable timespan
+    This prevents storage bloat from alerts that were created but never acted upon
+    
+    IMPORTANT: Only removes alerts with open=false or missing open field
+    Never removes alerts with open=true (those are only removed by order updates)
+    
+    Args:
+        hours_old: Remove non-open alerts older than this many hours (default: 24)
+    """
+    try:
+        alerts = _load_alerts()
+        if not alerts:
+            return
+        
+        from datetime import datetime, timedelta
+        cutoff_time = datetime.now() - timedelta(hours=hours_old)
+        removed_count = 0
+        
+        for alerter_name in list(alerts.keys()):
+            if alerter_name not in alerts:
+                continue
+                
+            for ticker in list(alerts[alerter_name].keys()):
+                alert_data = alerts[alerter_name][ticker]
+                
+                # Only clean up alerts that are NOT marked as open
+                # - open=false (explicitly not open)  
+                # - missing open field (never marked as open)
+                # NEVER remove open=true alerts (those are live positions)
+                is_open = alert_data.get("open", False)
+                if not is_open:  # Only remove if open=false or missing
+                    created_at_str = alert_data.get("created_at")
+                    if created_at_str:
+                        try:
+                            # Parse ISO format timestamp
+                            created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                            if created_at < cutoff_time:
+                                # Remove the stale non-open alert
+                                del alerts[alerter_name][ticker]
+                                removed_count += 1
+                                logger.info(f"Removed stale non-open alert: {alerter_name}/{ticker} (created {created_at_str}, open={is_open})")
+                                
+                                # Clean up empty alerter sections
+                                if not alerts[alerter_name]:
+                                    del alerts[alerter_name]
+                                    
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Could not parse created_at for {alerter_name}/{ticker}: {e}")
+                            continue
+        
+        if removed_count > 0:
+            _save_alerts(alerts)
+            logger.info(f"Cleaned up {removed_count} stale non-open alerts older than {hours_old} hours")
+        else:
+            logger.debug(f"No stale non-open alerts found (older than {hours_old} hours)")
+            
+    except Exception as e:
+        logger.error(f"Error during stale alert cleanup: {e}")
 
 async def _detect_buy_alert(message: str) -> Optional[Dict[str, Any]]:
     """
@@ -113,65 +180,65 @@ def _format_expiry_for_display(expiry: str) -> str:
         return expiry
 
 def _extract_expiry(message: str, strike_position: int, ticker: str = None) -> str:
-    """Extract expiry from message (must come after strike position)"""
+    """Extract expiry from message (must come after strike position) - STRICT date format only"""
     # Look for expiry patterns after the strike position
     message_after_strike = message[strike_position:]
     
     # Remove URLs to avoid false matches from Discord IDs, etc.
-    # Remove any text that looks like a URL (starts with http/https)
     cleaned_message = re.sub(r'https?://[^\s]+', '', message_after_strike)
     
-    # Common expiry patterns: 10/25, OCT25, 1025, etc.
-    # Look for patterns that are likely expiry dates (not random number sequences)
-    expiry_patterns = [
-        # MM/DD format - but be more restrictive to avoid false matches
-        r'\b(\d{1,2})/(\d{1,2})\b',  # 10/25 (word boundaries to avoid URL fragments)
-        # Month abbreviations with 2-digit year
-        r'\b([A-Z]{3})(\d{2})\b',     # OCT25
-        # 4-digit MMDD format - but only if it looks like a valid date
-        r'\b(\d{4})\b'                # 1025 (will validate if it's a real date)
-    ]
+    # STRICT: Only accept MM/DD or M/D format with forward slash
+    # NO other formats like 0314, OCT25, etc. - these are NOT dates
+    expiry_pattern = r'\b(\d{1,2})/(\d{1,2})\b'
     
-    for pattern in expiry_patterns:
-        match = re.search(pattern, cleaned_message.upper())
-        if match:
-            matched_text = match.group(0)
-            
-            # Additional validation for MM/DD format
-            if '/' in matched_text:
-                parts = matched_text.split('/')
-                try:
-                    month, day = int(parts[0]), int(parts[1])
-                    # Validate it's a reasonable date (month 1-12, day 1-31)
-                    if 1 <= month <= 12 and 1 <= day <= 31:
-                        return matched_text
-                except (ValueError, IndexError):
-                    continue
-            
-            # Additional validation for 4-digit format
-            elif matched_text.isdigit() and len(matched_text) == 4:
-                try:
-                    month, day = int(matched_text[:2]), int(matched_text[2:])
-                    # Validate it's a reasonable date
-                    if 1 <= month <= 12 and 1 <= day <= 31:
-                        # Convert to MM/DD format for consistency
-                        return f"{month:02d}/{day:02d}"
-                except ValueError:
-                    continue
-            
-            # Month abbreviation format (OCT25, etc.)
-            else:
-                return matched_text
+    match = re.search(expiry_pattern, cleaned_message)
+    if match:
+        try:
+            month, day = int(match.group(1)), int(match.group(2))
+            # Validate it's a reasonable date (month 1-12, day 1-31)
+            if 1 <= month <= 12 and 1 <= day <= 31:
+                from datetime import datetime
+                current_year = datetime.now().year
+                current_month = datetime.now().month
+                current_day = datetime.now().day
+                
+                # Check if this might be a historical date (in a recap/summary)
+                message_upper = message.upper()
+                is_historical = 'RECAP' in message_upper
+                
+                if is_historical:
+                    # For historical messages, default to current year
+                    return f"{month:02d}/{day:02d}/{current_year}"
+                else:
+                    # For regular trading alerts, if date has passed, assume next year
+                    if (month, day) < (current_month, current_day):
+                        return f"{month:02d}/{day:02d}/{current_year + 1}"
+                    else:
+                        return f"{month:02d}/{day:02d}/{current_year}"
+        except (ValueError, IndexError):
+            pass
     
-    # Default to current date (0DTE)
-    # This is especially important for SPY/SPX which have daily expirations
-    current_date = datetime.now().strftime("%m/%d")
+    # NO MATCH FOUND - Use defaults
+    from datetime import datetime
     
-    # Log the default behavior for debugging
     if ticker and ticker.upper() in ['SPY', 'SPX']:
+        # SPY/SPX: Default to 0DTE (same day expiry)
+        current_date = datetime.now().strftime("%m/%d/%Y")
         logger.debug(f"No expiry found for {ticker}, defaulting to 0DTE: {current_date}")
-    
-    return current_date
+        return current_date
+    else:
+        # Other tickers: Default to closest Friday (standard options expiry)
+        current_date = datetime.now()
+        days_ahead = 4 - current_date.weekday()  # Friday is weekday 4
+        if days_ahead <= 0:  # If today is Friday or weekend, next Friday
+            days_ahead += 7
+        
+        from datetime import timedelta
+        next_friday = current_date + timedelta(days=days_ahead)
+        default_expiry = next_friday.strftime("%m/%d/%Y")
+        
+        logger.debug(f"No expiry found for {ticker or 'unknown'}, defaulting to next Friday: {default_expiry}")
+        return default_expiry
 
 def _compact_discord_links(message: str) -> str:
     """
@@ -193,6 +260,16 @@ def _compact_discord_links(message: str) -> str:
     compacted = re.sub(r'See it here:\s*<a href=', '<a href=', compacted)
     
     return compacted
+
+def _is_recap_message(message: str) -> bool:
+    """Check if message contains recap keyword - used by all alerters"""
+    return 'RECAP' in message.upper()
+
+def _count_strikes_in_message(message: str) -> int:
+    """Count the number of option strikes in the message - used by all alerters"""
+    # Find all strike+side patterns (e.g., "175P", "600C", "123.5C")
+    strike_patterns = re.findall(r'\d+(?:\.\d+)?[CP]', message.upper())
+    return len(strike_patterns)
 
 class LiteRealDayTradingHandler:
     """Lite handler for Real Day Trading notifications"""
@@ -466,7 +543,7 @@ class LiteRealDayTradingHandler:
                 alerts[self.alerter_name] = {}
             
             alerts[self.alerter_name][ticker] = {
-                "open": True,
+                "open": False,  # Always start as closed - only order tracking sets this to True
                 "created_at": datetime.now().isoformat(),
                 "option_conids": [option_conid] if option_conid else [],
                 "option_conid": option_conid,
@@ -527,7 +604,7 @@ class LiteRealDayTradingHandler:
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
-                if alert_data.get("open") and alert_data.get("option_conid"):
+                if alert_data.get("option_conid"):  # Show any alert with valid option_conid
                     details = alert_data["alert_details"]
                     
                     option_conid = alert_data["option_conid"]
@@ -568,6 +645,14 @@ class LiteDemslayerHandler:
             buy_alert_info = await self._detect_spx_buy_alert(message)
             
             if buy_alert_info:
+                # Check if this is a RECAP message with many strikes (should be treated as UPDATE)
+                is_recap = _is_recap_message(message)
+                strike_count = _count_strikes_in_message(message)
+                
+                if is_recap and strike_count > 3:
+                    logger.info(f"Detected RECAP message with {strike_count} strikes - treating as UPDATE alert instead of BUY")
+                    return await self._process_update_alert(message, title)
+                
                 # This is a BUY alert - process new position
                 return await self._process_buy_alert(buy_alert_info, message, title)
             else:
@@ -735,7 +820,7 @@ class LiteDemslayerHandler:
                 alerts[self.alerter_name] = {}
             
             alerts[self.alerter_name][ticker] = {
-                "open": True,
+                "open": False,  # Always start as closed - only order tracking sets this to True
                 "created_at": datetime.now().isoformat(),
                 "option_conids": [option_conid] if option_conid else [],
                 "option_conid": option_conid,
@@ -796,7 +881,7 @@ class LiteDemslayerHandler:
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
-                if alert_data.get("open") and alert_data.get("option_conid"):
+                if alert_data.get("option_conid"):  # Show any alert with valid option_conid
                     details = alert_data["alert_details"]
                     
                     option_conid = alert_data["option_conid"]
@@ -833,10 +918,18 @@ class LiteProfAndKianHandler:
             
             logger.info(f"Processing Prof & Kian notification: {title} - {message}")
             
-            # Try to detect if this is a BUY alert
-            buy_alert_info = await _detect_buy_alert(message)
+            # Try to detect if this is a BUY alert using Prof & Kian specific logic
+            buy_alert_info = await self._detect_prof_kian_buy_alert(message)
             
             if buy_alert_info:
+                # Check if this is a RECAP message with many strikes (should be treated as UPDATE)
+                is_recap = _is_recap_message(message)
+                strike_count = _count_strikes_in_message(message)
+                
+                if is_recap and strike_count > 3:
+                    logger.info(f"Detected RECAP message with {strike_count} strikes - treating as UPDATE alert instead of BUY")
+                    return await self._process_update_alert(message, title)
+                
                 # This is a BUY alert - process new position
                 return await self._process_buy_alert(buy_alert_info, message, title)
             else:
@@ -859,10 +952,15 @@ class LiteProfAndKianHandler:
             side = buy_info["side"]
             stock_conid = buy_info["stock_conid"]
             
-            # Extract expiry (default to today if not found)
-            strike_match = re.search(rf'{_normalize_strike_for_regex(strike)}[CP]', message.upper())
-            strike_pos = strike_match.end() if strike_match else len(message)
-            expiry = _extract_expiry(message, strike_pos)
+            # Extract expiry based on format
+            if buy_info.get("format") == "detailed":
+                # Use detailed format expiry extraction
+                expiry = self._extract_detailed_expiry(message, ticker)
+            else:
+                # Use compact format expiry extraction (original logic)
+                strike_match = re.search(rf'{_normalize_strike_for_regex(strike)}[CP]', message.upper())
+                strike_pos = strike_match.end() if strike_match else len(message)
+                expiry = _extract_expiry(message, strike_pos, ticker)
             
             # Get option contract CONID
             option_conid = None
@@ -929,7 +1027,7 @@ class LiteProfAndKianHandler:
                 alerts[self.alerter_name] = {}
             
             alerts[self.alerter_name][ticker] = {
-                "open": True,
+                "open": False,  # Always start as closed - only order tracking sets this to True
                 "created_at": datetime.now().isoformat(),
                 "option_conids": [option_conid] if option_conid else [],
                 "option_conid": option_conid,
@@ -990,7 +1088,7 @@ class LiteProfAndKianHandler:
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
-                if alert_data.get("open") and alert_data.get("option_conid"):
+                if alert_data.get("option_conid"):  # Show any alert with valid option_conid
                     details = alert_data["alert_details"]
                     
                     option_conid = alert_data["option_conid"]
@@ -1009,6 +1107,146 @@ class LiteProfAndKianHandler:
         except Exception as e:
             logger.error(f"Error sending update telegram: {e}")
             return {"success": False, "error": str(e)}
+    
+    async def _detect_prof_kian_buy_alert(self, message: str) -> Optional[Dict[str, Any]]:
+        """
+        Detect Prof & Kian buy alerts in both formats:
+        1. Detailed format: TICKER: UEC\nSTRIKE: 25C\nEXP: 05/15/2025
+        2. Compact format: TSLA 600C 10/3
+        """
+        # First, try to detect detailed format
+        detailed_alert = await self._detect_detailed_format(message)
+        if detailed_alert:
+            return detailed_alert
+        
+        # Fallback to compact format detection
+        return await _detect_buy_alert(message)
+    
+    async def _detect_detailed_format(self, message: str) -> Optional[Dict[str, Any]]:
+        """
+        Detect detailed format alerts:
+        TICKER: UEC
+        STRIKE: 25C
+        PRICE: 1.35
+        EXP: 05/15/2025
+        """
+        # Look for TICKER: pattern
+        ticker_match = re.search(r'TICKER:\s*([A-Z]{1,5})', message.upper())
+        if not ticker_match:
+            return None
+        
+        ticker = ticker_match.group(1)
+        
+        # Look for STRIKE: pattern with side (C/P)
+        strike_match = re.search(r'STRIKE:\s*(\d+(?:\.\d+)?)([CP])', message.upper())
+        if not strike_match:
+            return None
+        
+        strike = float(strike_match.group(1))
+        side = "CALL" if strike_match.group(2) == "C" else "PUT"
+        
+        # Verify it's a real stock by getting CONID
+        try:
+            stock_conid = await ibkr_service.get_stock_conid(ticker)
+            if not stock_conid:
+                return None
+        except Exception as e:
+            logger.debug(f"Could not verify {ticker} as stock: {e}")
+            return None
+        
+        return {
+            "ticker": ticker,
+            "strike": strike,
+            "side": side,
+            "stock_conid": stock_conid,
+            "format": "detailed"
+        }
+    
+    def _extract_detailed_expiry(self, message: str, ticker: str = None) -> str:
+        """
+        Extract expiry from detailed format message.
+        Supports:
+        - EXP: 05/15/2025 (full date with year)
+        - EXP: 10/3 (month/day, current year assumed)
+        - EXP: 1/2027exp (monthly options like January 2027)
+        """
+        from datetime import datetime, timedelta
+        
+        # Look for EXP: pattern
+        exp_match = re.search(r'EXP:\s*([^\s\n]+)', message.upper())
+        if not exp_match:
+            # No EXP found, use default logic
+            return self._get_default_expiry(ticker)
+        
+        exp_text = exp_match.group(1)
+        
+        # Handle different expiry formats
+        
+        # Full date: 05/15/2025
+        full_date_match = re.match(r'(\d{1,2})/(\d{1,2})/(\d{4})', exp_text)
+        if full_date_match:
+            month, day, year = full_date_match.groups()
+            return f"{int(month):02d}/{int(day):02d}/{year}"
+        
+        # Month/day without year: 10/3
+        md_match = re.match(r'(\d{1,2})/(\d{1,2})$', exp_text)
+        if md_match:
+            month, day = int(md_match.group(1)), int(md_match.group(2))
+            if 1 <= month <= 12 and 1 <= day <= 31:
+                current_year = datetime.now().year
+                current_month = datetime.now().month
+                current_day = datetime.now().day
+                
+                # If date has passed this year, assume next year
+                if (month, day) < (current_month, current_day):
+                    return f"{month:02d}/{day:02d}/{current_year + 1}"
+                else:
+                    return f"{month:02d}/{day:02d}/{current_year}"
+        
+        # Monthly options: 1/2027exp
+        monthly_match = re.match(r'(\d{1,2})/(\d{4})EXP?', exp_text)
+        if monthly_match:
+            month, year = int(monthly_match.group(1)), int(monthly_match.group(2))
+            if 1 <= month <= 12:
+                # For monthly options, use the third Friday of the month
+                from calendar import monthrange
+                
+                # Get first day of the month
+                first_day = datetime(year, month, 1)
+                
+                # Find first Friday (weekday 4)
+                days_to_friday = (4 - first_day.weekday()) % 7
+                first_friday = first_day + timedelta(days=days_to_friday)
+                
+                # Third Friday is 14 days later
+                third_friday = first_friday + timedelta(days=14)
+                
+                return third_friday.strftime("%m/%d/%Y")
+        
+        # If nothing matches, use default
+        return self._get_default_expiry(ticker)
+    
+    def _get_default_expiry(self, ticker: str = None) -> str:
+        """Get default expiry based on ticker"""
+        from datetime import datetime, timedelta
+        
+        if ticker and ticker.upper() in ['SPY', 'SPX']:
+            # SPY/SPX: Default to 0DTE (same day expiry)
+            current_date = datetime.now().strftime("%m/%d/%Y")
+            logger.debug(f"No expiry found for {ticker}, defaulting to 0DTE: {current_date}")
+            return current_date
+        else:
+            # Other tickers: Default to closest Friday (standard options expiry)
+            current_date = datetime.now()
+            days_ahead = 4 - current_date.weekday()  # Friday is weekday 4
+            if days_ahead <= 0:  # If today is Friday or weekend, next Friday
+                days_ahead += 7
+            
+            next_friday = current_date + timedelta(days=days_ahead)
+            default_expiry = next_friday.strftime("%m/%d/%Y")
+            
+            logger.debug(f"No expiry found for {ticker or 'unknown'}, defaulting to next Friday: {default_expiry}")
+            return default_expiry
 
 
 class LiteRobinDaHoodHandler:
@@ -1031,6 +1269,14 @@ class LiteRobinDaHoodHandler:
             buy_alert_info = await _detect_buy_alert(message)
             
             if buy_alert_info:
+                # Check if this is a RECAP message with many strikes (should be treated as UPDATE)
+                is_recap = _is_recap_message(message)
+                strike_count = _count_strikes_in_message(message)
+                
+                if is_recap and strike_count > 3:
+                    logger.info(f"Detected RECAP message with {strike_count} strikes - treating as UPDATE alert instead of BUY")
+                    return await self._process_update_alert(message, title)
+                
                 # This is a BUY alert - process new position
                 return await self._process_buy_alert(buy_alert_info, message, title)
             else:
@@ -1123,7 +1369,7 @@ class LiteRobinDaHoodHandler:
                 alerts[self.alerter_name] = {}
             
             alerts[self.alerter_name][ticker] = {
-                "open": True,
+                "open": False,  # Always start as closed - only order tracking sets this to True
                 "created_at": datetime.now().isoformat(),
                 "option_conids": [option_conid] if option_conid else [],
                 "option_conid": option_conid,
@@ -1184,7 +1430,7 @@ class LiteRobinDaHoodHandler:
             
             # Add all stored alerts with option quote links
             for ticker, alert_data in alerter_alerts.items():
-                if alert_data.get("open") and alert_data.get("option_conid"):
+                if alert_data.get("option_conid"):  # Show any alert with valid option_conid
                     details = alert_data["alert_details"]
                     
                     option_conid = alert_data["option_conid"]
