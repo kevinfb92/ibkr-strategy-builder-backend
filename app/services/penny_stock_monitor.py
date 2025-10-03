@@ -104,6 +104,34 @@ class PennyStockMonitor:
                 if not ticker or not isinstance(parents, list):
                     continue
                 t = self._data.setdefault(ticker, {'ticker': ticker, 'minimum_variation': float(item.get('minimum_variation', 0.001)), 'orders': []})
+                
+                # Extract and store strategy-level fields at ticker root level
+                if 'entry_price' in item:
+                    try:
+                        t['entry_price'] = None if item.get('entry_price') is None else float(item.get('entry_price'))
+                    except Exception:
+                        pass
+                
+                if 'freeRunner' in item:
+                    try:
+                        t['freeRunner'] = bool(item.get('freeRunner'))
+                    except Exception:
+                        pass
+                elif 'free_runner' in item:
+                    try:
+                        t['free_runner'] = bool(item.get('free_runner'))
+                    except Exception:
+                        pass
+                
+                if 'price_targets' in item:
+                    try:
+                        targets = item.get('price_targets')
+                        if isinstance(targets, list):
+                            t['price_targets'] = [float(x) for x in targets if x is not None]
+                        else:
+                            t['price_targets'] = []
+                    except Exception:
+                        t['price_targets'] = []
                 for parent in parents:
                     parent_id = parent.get("parent_order_id")
                     if parent_id is None:

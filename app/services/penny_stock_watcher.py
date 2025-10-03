@@ -5,6 +5,7 @@ import json
 from typing import Any, Dict, Optional
 
 from .penny_stock_monitor import penny_stock_monitor
+from .penny_stock_notification_service import penny_stock_notification_service
 from . import ibkr_service
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,7 @@ class PennyStockWatcher:
                                 logger.info("WS_PROCESSED_MSG: %s", json.dumps(msg, default=str))
                             except Exception:
                                 logger.info("WS_PROCESSED_MSG (repr): %s", repr(msg))
-                            self._handle_order_message(msg)
+                            await self._handle_order_message(msg)
                         except Exception:
                             logger.exception("Error handling order message")
 
@@ -244,7 +245,7 @@ class PennyStockWatcher:
 
         return {'examined': examined, 'updated': updated}
 
-    def _handle_order_message(self, msg: Dict[str, Any]):
+    async def _handle_order_message(self, msg: Dict[str, Any]):
         """Process a single order update message and update penny monitor if matches.
 
         Expected message shapes vary; we attempt to extract these fields safely:
@@ -350,12 +351,57 @@ class PennyStockWatcher:
             details['avg_price'] = avg_price
 
         if is_filled:
+            # Update order status
             penny_stock_monitor.update_order_status(matched_key, 'FILLED', details=details)
             logger.info(f"Marked penny order {matched_key} as FILLED")
+            
+            # Send Telegram notification
+            try:
+                await self._send_fill_notification(matched_key, payload, details)
+            except Exception as e:
+                logger.error(f"Failed to send fill notification for {matched_key}: {e}")
         else:
             # If not filled, still update last known status for traceability
             if status:
                 penny_stock_monitor.update_order_status(matched_key, status, details=details)
+
+    async def _send_fill_notification(self, order_key: str, payload: Dict[str, Any], details: Dict[str, Any]):
+        """Send Telegram notification when an order is filled"""
+        try:
+            # Get the stored order data
+            stored_order = penny_stock_monitor.get_order(order_key)
+            if not stored_order:
+                logger.warning(f"Cannot find stored order for key {order_key}")
+                return
+                
+            ticker = stored_order.get('ticker', 'Unknown')
+            
+            # Get the strategy data for this ticker
+            strategy_data = penny_stock_monitor._data.get(ticker, {})
+            
+            # Determine if this is a buy (parent) or sell (child) order
+            is_parent_order = order_key == stored_order.get('parent_order_id')
+            
+            # Extract order details from payload and details
+            order_data = {
+                'parent_order_id': stored_order.get('parent_order_id', order_key),
+                'filled_qty': details.get('filled_qty', payload.get('filled', 'Unknown')),
+                'avg_price': details.get('avg_price', payload.get('avgPrice', 'Unknown'))
+            }
+            
+            if is_parent_order:
+                # Parent order filled = buy order filled = position opened
+                await penny_stock_notification_service.send_buy_order_filled(
+                    ticker, order_data, strategy_data
+                )
+            else:
+                # Child order filled = sell order filled = position closed/partial
+                await penny_stock_notification_service.send_sell_order_filled(
+                    ticker, order_data, strategy_data
+                )
+                
+        except Exception as e:
+            logger.error(f"Error sending fill notification for {order_key}: {e}")
 
 
 # Global instance

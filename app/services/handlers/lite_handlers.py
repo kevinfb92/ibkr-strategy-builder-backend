@@ -196,35 +196,60 @@ async def _detect_buy_alert(message: str) -> Optional[Dict[str, Any]]:
     return None
 
 def _format_expiry_for_display(expiry: str) -> str:
-    """Format expiry for readable display in Telegram messages"""
+    """Format expiry for readable display in Telegram messages with month names (Jan, Feb, etc.)"""
     try:
-        # If expiry is in MMDD format (like "0929", "1030")
+        # If expiry is in MMDD format (like "0929", "1030", "1003")
         if len(expiry) == 4 and expiry.isdigit():
             month = int(expiry[:2])
             day = int(expiry[2:])
             # Create date object for current year
             current_year = datetime.now().year
             exp_date = datetime(current_year, month, day)
-            return exp_date.strftime("%b %d")  # "Sep 29", "Oct 30"
+            return exp_date.strftime("%b %d")  # "Oct 03", "Oct 30"
         
-        # If expiry is in MM/DD format
+        # If expiry is in MM/DD or MM/DD/YYYY format
         elif "/" in expiry:
             parts = expiry.split("/")
-            if len(parts) == 2:
+            if len(parts) >= 2:
                 month = int(parts[0])
                 day = int(parts[1])
-                current_year = datetime.now().year
-                exp_date = datetime(current_year, month, day)
-                return exp_date.strftime("%b %d")
+                
+                # Get year from parts if available, otherwise use current year
+                if len(parts) >= 3 and parts[2]:
+                    year = int(parts[2])
+                    # Handle 2-digit years
+                    if year < 100:
+                        year = 2000 + year if year < 50 else 1900 + year
+                else:
+                    year = datetime.now().year
+                
+                exp_date = datetime(year, month, day)
+                return exp_date.strftime("%b %d")  # "Oct 03", "Dec 20"
         
-        # If expiry is 4 digits but not current year pattern, try as YYMM
-        elif len(expiry) == 4 and expiry.isdigit():
-            return expiry  # Return as-is if can't parse
+        # If expiry is in YYYYMMDD format (like "20251003")
+        elif len(expiry) == 8 and expiry.isdigit():
+            year = int(expiry[:4])
+            month = int(expiry[4:6])
+            day = int(expiry[6:8])
+            exp_date = datetime(year, month, day)
+            return exp_date.strftime("%b %d")  # "Oct 03"
+        
+        # If expiry is in YYYYMM format (like "202510")
+        elif len(expiry) == 6 and expiry.isdigit():
+            year = int(expiry[:4])
+            month = int(expiry[4:6])
+            # Use 3rd Friday of the month for monthly options
+            from calendar import monthrange
+            first_day = datetime(year, month, 1)
+            days_to_friday = (4 - first_day.weekday()) % 7
+            first_friday = first_day + timedelta(days=days_to_friday)
+            third_friday = first_friday + timedelta(days=14)
+            return third_friday.strftime("%b %d")  # "Oct 18"
             
-        # Return as-is if can't parse
+        # Return as-is if can't parse any known format
         return expiry
         
-    except (ValueError, IndexError):
+    except (ValueError, IndexError, TypeError):
         # If any parsing fails, return the original expiry
         return expiry
 
@@ -755,7 +780,10 @@ class LiteDemslayerHandler:
                     strike_side_pattern = strike_match.group(0)  # e.g., "6000C"
                     message_after_strike = message[strike_match.end():]  # Everything after "6000C"
                     
-                    # Look for valid expiry patterns in the remaining message
+                    # Remove URLs to avoid false matches from Discord IDs, etc.
+                    cleaned_message = re.sub(r'https?://[^\s]+', '', message_after_strike)
+                    
+                    # Look for valid expiry patterns in the cleaned message
                     # Valid formats: MMDD (like 1002, 1003, 1025), MM/DD, MM-DD
                     expiry_patterns = [
                         r'(\d{2}/\d{2})',           # MM/DD format (10/03)
@@ -765,7 +793,7 @@ class LiteDemslayerHandler:
                     
                     expiry = None
                     for pattern in expiry_patterns:
-                        expiry_match = re.search(pattern, message_after_strike)
+                        expiry_match = re.search(pattern, cleaned_message)
                         if expiry_match:
                             raw_expiry = expiry_match.group(1)
                             # Normalize to MMDD format
@@ -1402,7 +1430,7 @@ class LiteRobinDaHoodHandler:
             # Extract expiry (default to today if not found)
             strike_match = re.search(rf'{_normalize_strike_for_regex(strike)}[CP]', message.upper())
             strike_pos = strike_match.end() if strike_match else len(message)
-            expiry = _extract_expiry(message, strike_pos)
+            expiry = _extract_expiry(message, strike_pos, ticker)
             
             # Get option contract CONID
             option_conid = None

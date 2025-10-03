@@ -1,166 +1,84 @@
 {
-  "AGRI": {
-    "ticker": "AGRI",
+  "XELB": {
+    "ticker": "XELB",
     "minimum_variation": 0.01,
     "orders": [
       {
-        "ticker": "AGRI",
-        "parent_order_id": "1772060004",
-        "created_at": "2025-09-22T13:21:27.415526",
+        "ticker": "XELB",
+        "parent_order_id": "556733603",
+        "created_at": "2025-10-03T07:53:27.079643",
         "status": "OPEN",
         "limit_sell": {
-          "order_id": "1772060003"
+          "order_id": "556733602"
         },
         "stop_loss": {
-          "order_id": "1772060002"
+          "order_id": "556733601"
         },
-        "entry_price": 8.22,
-        "target_price": 8.8,
-        "stop_loss_price": 7.398000000000001,
+        "target_price": null,
+        "stop_loss_price": null,
         "free_runner": false,
         "minimum_variation": 0.01
       },
       {
-        "ticker": "AGRI",
-        "parent_order_id": "1772060009",
-        "created_at": "2025-09-22T13:21:27.415526",
+        "ticker": "XELB",
+        "parent_order_id": "556733608",
+        "created_at": "2025-10-03T07:53:27.079643",
         "status": "OPEN",
         "limit_sell": {
-          "order_id": "1772060008"
+          "order_id": "556733607"
         },
         "stop_loss": {
-          "order_id": "1772060007"
+          "order_id": "556733606"
         },
-        "entry_price": 8.22,
-        "target_price": 8.8,
-        "stop_loss_price": 7.398000000000001,
+        "target_price": null,
+        "stop_loss_price": null,
         "free_runner": false,
         "minimum_variation": 0.01
       }
-    ],
-    "entry_price": 8.22
+    ]
   },
-  "QLGN": {
-    "ticker": "QLGN",
+  "BNAI": {
+    "ticker": "BNAI",
     "minimum_variation": 0.01,
     "orders": [
       {
-        "ticker": "QLGN",
-        "parent_order_id": "1772060014",
-        "created_at": "2025-09-22T13:22:11.446651",
+        "ticker": "BNAI",
+        "parent_order_id": "556733613",
+        "created_at": "2025-10-03T07:59:38.004358",
         "status": "OPEN",
         "limit_sell": {
-          "order_id": "1772060013"
+          "order_id": "556733612"
         },
         "stop_loss": {
-          "order_id": "1772060012"
+          "order_id": "556733611"
         },
-        "entry_price": 9.03,
-        "target_price": 10.0,
-        "stop_loss_price": 8.126999999999999,
+        "target_price": null,
+        "stop_loss_price": null,
         "free_runner": false,
         "minimum_variation": 0.01
       },
       {
-        "ticker": "QLGN",
-        "parent_order_id": "1772060019",
-        "created_at": "2025-09-22T13:22:11.446651",
+        "ticker": "BNAI",
+        "parent_order_id": "556733618",
+        "created_at": "2025-10-03T07:59:38.004358",
         "status": "OPEN",
         "limit_sell": {
-          "order_id": "1772060018"
+          "order_id": "556733617"
         },
         "stop_loss": {
-          "order_id": "1772060017"
+          "order_id": "556733616"
         },
-        "entry_price": 9.03,
-        "target_price": 10.0,
-        "stop_loss_price": 8.126999999999999,
+        "target_price": null,
+        "stop_loss_price": null,
         "free_runner": false,
         "minimum_variation": 0.01
       }
     ],
-    "entry_price": 9.03
-  },
-  "BOXL": {
-    "ticker": "BOXL",
-    "minimum_variation": 0.01,
-    "orders": [
-      {
-        "ticker": "BOXL",
-        "parent_order_id": "1772060031",
-        "created_at": "2025-09-22T13:25:14.411058",
-        "status": "OPEN",
-        "limit_sell": {
-          "order_id": "1772060030"
-        },
-        "stop_loss": {
-          "order_id": "1772060032"
-        },
-        "entry_price": 7.02,
-        "target_price": 7.7,
-        "stop_loss_price": 6.318,
-        "free_runner": false,
-        "minimum_variation": 0.01
-      },
-      {
-        "ticker": "BOXL",
-        "parent_order_id": "1772060037",
-        "created_at": "2025-09-22T13:25:14.411058",
-        "status": "OPEN",
-        "limit_sell": {
-          "order_id": "1772060036"
-        },
-        "stop_loss": {
-          "order_id": "1772060035"
-        },
-        "entry_price": 7.02,
-        "target_price": 7.7,
-        "stop_loss_price": 6.318,
-        "free_runner": false,
-        "minimum_variation": 0.01
-      }
-    ],
-    "entry_price": 7.02
-  },
-  "MBX": {
-    "ticker": "MBX",
-    "minimum_variation": 0.01,
-    "orders": [
-      {
-        "ticker": "MBX",
-        "parent_order_id": "1772060042",
-        "created_at": "2025-09-22T13:26:03.704810",
-        "status": "OPEN",
-        "limit_sell": {
-          "order_id": "1772060041"
-        },
-        "stop_loss": {
-          "order_id": "1772060040"
-        },
-        "entry_price": 25.04,
-        "target_price": 28.0,
-        "stop_loss_price": 23.787999999999997,
-        "free_runner": false,
-        "minimum_variation": 0.01
-      },
-      {
-        "ticker": "MBX",
-        "parent_order_id": "1772060047",
-        "created_at": "2025-09-22T13:26:03.704810",
-        "status": "OPEN",
-        "limit_sell": {
-          "order_id": "1772060046"
-        },
-        "stop_loss": {
-          "order_id": "1772060045"
-        },
-        "entry_price": 25.04,
-        "target_price": 28.0,
-        "stop_loss_price": 23.787999999999997,
-        "free_runner": false,
-        "minimum_variation": 0.01
-      }
-    ],
-    "entry_price": 25.04
+    "entry_price": 0.52,
+    "freeRunner": true,
+    "price_targets": [
+      0.525,
+      0.55
+    ]
   }
 }

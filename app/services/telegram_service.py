@@ -501,13 +501,16 @@ class TelegramService:
                     option_type = contract_details.get('right', '')
                     expiry = contract_details.get('expiry', '')
                     
-                    # Format expiry as MM/DD if we have the full date
+                    # Format expiry with month names (Jan, Feb, etc.) for consistency
                     formatted_expiry = expiry
                     if expiry and len(expiry) == 8:  # Format: YYYYMMDD
                         try:
-                            month = expiry[4:6]
-                            day = expiry[6:8]
-                            formatted_expiry = f"{int(month)}/{int(day)}"
+                            from datetime import datetime
+                            year = int(expiry[:4])
+                            month = int(expiry[4:6])
+                            day = int(expiry[6:8])
+                            exp_date = datetime(year, month, day)
+                            formatted_expiry = exp_date.strftime("%b %d")  # "Oct 03"
                         except:
                             formatted_expiry = expiry
                     
