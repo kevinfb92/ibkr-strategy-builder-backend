@@ -1088,9 +1088,23 @@ class IBKRService:
                                     pass
                             expiry = f"{year}{month}{day}"
                     else:
-                        # Numeric forms: YYYYMMDD (8), YYYYMM (6) -> convert YYYYMM to YYYYMM01
+                        # Numeric forms: YYYYMMDD (8), YYYYMM (6), MMDD (4) -> normalize to YYYYMMDD
                         if expiry.isdigit():
-                            if len(expiry) == 6:
+                            if len(expiry) == 4:
+                                # MMDD format (e.g., "1003" -> "20251003")
+                                from datetime import datetime
+                                now = datetime.utcnow()
+                                month = expiry[:2]
+                                day = expiry[2:]
+                                year = str(now.year)
+                                try:
+                                    m = int(month); d = int(day)
+                                    if (m, d) < (now.month, now.day):
+                                        year = str(now.year + 1)
+                                except Exception:
+                                    pass
+                                expiry = f"{year}{month}{day}"
+                            elif len(expiry) == 6:
                                 expiry = expiry + '01'
                             elif len(expiry) == 8:
                                 # already YYYYMMDD
