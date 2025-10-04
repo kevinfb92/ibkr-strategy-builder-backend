@@ -37,6 +37,9 @@ class IBKRService:
 
         # Try to set a current account early to avoid repeated pre-flight failures
         try:
+            # Check if a preferred account ID is configured via environment variable
+            preferred_account_id = os.getenv('IBKR_ACCOUNT_ID', '').strip()
+            
             acct_res = None
             # prefer 'accounts' if available, otherwise fall back to portfolio_accounts
             if hasattr(self.client, 'accounts'):
@@ -45,17 +48,36 @@ class IBKRService:
                 acct_res = self.client.portfolio_accounts()
 
             if acct_res and hasattr(acct_res, 'data') and acct_res.data:
-                # data shape may differ; try several common keys
-                first = acct_res.data[0] if isinstance(acct_res.data, list) else acct_res.data
-                acct_id = None
-                if isinstance(first, dict):
-                    acct_id = first.get('accountId') or first.get('acctId') or first.get('account')
-                if acct_id:
-                    self._current_account_id = acct_id
-                    try:
-                        self.client.switch_account(self._current_account_id)
-                    except Exception:
-                        pass
+                available_accounts = acct_res.data if isinstance(acct_res.data, list) else [acct_res.data]
+                
+                # If preferred account is specified, try to find and use it
+                if preferred_account_id:
+                    for account in available_accounts:
+                        if isinstance(account, dict):
+                            acct_id = account.get('accountId') or account.get('acctId') or account.get('account')
+                            if acct_id == preferred_account_id:
+                                self._current_account_id = acct_id
+                                logger.info(f"Using preferred IBKR account: {acct_id}")
+                                try:
+                                    self.client.switch_account(self._current_account_id)
+                                except Exception:
+                                    pass
+                                break
+                    else:
+                        logger.warning(f"Preferred IBKR account '{preferred_account_id}' not found in available accounts")
+                
+                # If no preferred account was found/configured, use the first available account
+                if not self._current_account_id and available_accounts:
+                    first = available_accounts[0]
+                    if isinstance(first, dict):
+                        acct_id = first.get('accountId') or first.get('acctId') or first.get('account')
+                        if acct_id:
+                            self._current_account_id = acct_id
+                            logger.info(f"Using first available IBKR account: {acct_id}")
+                            try:
+                                self.client.switch_account(self._current_account_id)
+                            except Exception:
+                                pass
         except Exception:
             # best-effort only; continue without failing
             pass
