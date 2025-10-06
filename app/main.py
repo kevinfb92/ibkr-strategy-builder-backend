@@ -9,8 +9,9 @@ import os
 import time
 from urllib3.exceptions import InsecureRequestWarning
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -210,6 +211,59 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error stopping order tracking service: {e}")
 
+# Authentication middleware
+async def auth_middleware(request: Request, call_next):
+    """
+    Authentication middleware that checks for X-API-Key header on all requests.
+    Allows public access to health check, docs, and WebSocket endpoints.
+    """
+    # Define public endpoints that don't require authentication
+    public_paths = [
+        "/health",
+        "/docs", 
+        "/openapi.json",
+        "/redoc"
+    ]
+    
+    # Allow WebSocket connections (they can implement their own auth if needed)
+    if request.url.path.startswith("/ws"):
+        return await call_next(request)
+    
+    # Skip authentication for public endpoints
+    if request.url.path in public_paths:
+        return await call_next(request)
+    
+    # Check for API key in header
+    api_key = request.headers.get("X-API-Key")
+    expected_key = os.getenv("API_PASSWORD")
+    
+    # If no API password is set in environment, allow all requests (development mode)
+    if not expected_key:
+        logger.warning("⚠️  API_PASSWORD not set - running without authentication!")
+        return await call_next(request)
+    
+    # Validate API key
+    if not api_key:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": "Unauthorized",
+                "message": "X-API-Key header is required"
+            }
+        )
+    
+    if api_key != expected_key:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": "Unauthorized", 
+                "message": "Invalid API key"
+            }
+        )
+    
+    # API key is valid, proceed with request
+    return await call_next(request)
+
 # Initialize FastAPI app
 app = FastAPI(
     title="IBKR Strategy Builder Backend",
@@ -230,6 +284,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add authentication middleware
+app.middleware("http")(auth_middleware)
 
 # Include routers
 app.include_router(api_router)
