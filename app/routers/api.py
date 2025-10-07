@@ -395,6 +395,35 @@ def health_check():
         )
 
 
+@router.get("/notifications/storage")
+def get_notifications_storage():
+    """Get all notifications in storage"""
+    try:
+        from ..services.notification_service import notification_service
+        
+        notifications_data = []
+        for notification in notification_service.notifications:
+            notifications_data.append({
+                "title": notification.not_title,
+                "ticker": notification.not_ticker,
+                "message": notification.notification,
+                "timestamp": notification.timestamp.isoformat()
+            })
+        
+        return format_success_response(
+            message=f"Retrieved {len(notifications_data)} notifications from storage",
+            data={
+                "count": len(notifications_data),
+                "notifications": notifications_data
+            }
+        )
+    except Exception as e:
+        return format_error_response(
+            message="Failed to retrieve notifications",
+            details={"error": str(e)}
+        )
+
+
 @router.post("/echo")
 def echo(request: EchoRequest):
     """Echo back the request data"""

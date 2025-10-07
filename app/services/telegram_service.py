@@ -39,6 +39,11 @@ class TelegramService:
         self.application = None
         self.pending_messages: Dict[str, Dict[str, Any]] = {}
         self.chat_id: Optional[str] = None
+        
+        # Load channel IDs from environment
+        import os
+        self.buy_alerts_chat_id = os.getenv("TELEGRAM_BUY_ALERTS_CHAT_ID")
+        self.updates_chat_id = os.getenv("TELEGRAM_UPDATES_CHAT_ID")
 
     async def get_chat_id(self, username: str = "Kevchan") -> Optional[str]:
         """Get chat ID for a specific username (if possible)"""
@@ -605,18 +610,41 @@ class TelegramService:
     
     async def send_lite_alert(self, message: str) -> Dict[str, Any]:
         """
-        Send a simple alert message without additional formatting
-        Used by lite handlers for clean, compact messages
+        Legacy method - now disabled to avoid redundant messages.
+        Use send_buy_alert() or send_update_message() instead for dual-channel system.
+        """
+        # Generate unique message ID for compatibility
+        import uuid
+        message_id = str(uuid.uuid4()).replace('-', '')[:8]
+        
+        logger.info(f"send_lite_alert called but disabled (dual-channel active). Message ID: {message_id}")
+        logger.info(f"Message: {message[:100]}...")  # Log first 100 chars for debugging
+        
+        return {
+            "success": True,
+            "message": "Alert routed to dual-channel system (direct messages disabled)",
+            "message_id": message_id,
+            "telegram_message_id": None,
+            "chat_id": "disabled"
+        }
+    
+    async def send_buy_alert(self, message: str) -> Dict[str, Any]:
+        """
+        Send a buy alert message to the dedicated buy alerts channel
+        
+        Args:
+            message: The buy alert message
+            
+        Returns:
+            Dict with send result and message tracking info
         """
         try:
-            chat_id_to_use = 86655387  # Known working chat ID
-            
-            if not chat_id_to_use:
-                logger.warning("No chat ID available. User needs to start the bot first.")
+            if not self.buy_alerts_chat_id:
+                logger.warning("TELEGRAM_BUY_ALERTS_CHAT_ID not configured")
                 return {
                     "success": False,
-                    "message": "No chat ID available",
-                    "error": "missing_chat_id"
+                    "message": "Buy alerts channel not configured",
+                    "error": "missing_buy_alerts_chat_id"
                 }
             
             if not self.bot or not getattr(self.bot, 'send_message', None):
@@ -631,29 +659,114 @@ class TelegramService:
             import uuid
             message_id = str(uuid.uuid4()).replace('-', '')[:8]
             
-            # Send the message as-is without additional formatting
+            # Format message (no redundant "BUY ALERT" prefix since whole channel is for buy alerts)
+            formatted_message = message
+            
+            # Create Remove and Open buttons for buy alerts only
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = [[
+                InlineKeyboardButton("📈 Open", callback_data=f"open:{message_id}"),
+                InlineKeyboardButton("🗑️ Remove", callback_data=f"remove:{message_id}")
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Store message info for remove callback handling
+            self.pending_messages[message_id] = {
+                "type": "buy_alert",
+                "original_message": message,
+                "formatted_message": formatted_message,
+                "timestamp": datetime.now().isoformat(),
+                "chat_id": self.buy_alerts_chat_id
+            }
+            
+            # Send to buy alerts channel with Remove button
             sent_message = await self.bot.send_message(
-                chat_id=chat_id_to_use,
-                text=message,
+                chat_id=int(self.buy_alerts_chat_id),
+                text=formatted_message,
+                reply_markup=reply_markup,
                 parse_mode='HTML',
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
+                disable_notification=False  # Ensure sound notification
             )
             
-            logger.info(f"Sent trading alert to Telegram. Message ID: {message_id}")
+            logger.info(f"Sent buy alert to buy alerts channel. Message ID: {message_id}")
             
             return {
                 "success": True,
-                "message": "Alert sent successfully",
+                "message": "Buy alert sent successfully",
                 "message_id": message_id,
                 "telegram_message_id": sent_message.message_id,
-                "chat_id": chat_id_to_use
+                "chat_id": self.buy_alerts_chat_id,
+                "channel_type": "buy_alerts"
             }
             
         except Exception as e:
-            logger.exception("Error sending lite alert")
+            logger.exception("Error sending buy alert")
             return {
                 "success": False,
-                "message": f"Failed to send alert: {str(e)}",
+                "message": f"Failed to send buy alert: {str(e)}",
+                "error": str(e)
+            }
+    
+    async def send_update_message(self, message: str) -> Dict[str, Any]:
+        """
+        Send an update message to the dedicated updates channel
+        
+        Args:
+            message: The update message
+            
+        Returns:
+            Dict with send result and message tracking info
+        """
+        try:
+            if not self.updates_chat_id:
+                logger.warning("TELEGRAM_UPDATES_CHAT_ID not configured")
+                return {
+                    "success": False,
+                    "message": "Updates channel not configured",
+                    "error": "missing_updates_chat_id"
+                }
+            
+            if not self.bot or not getattr(self.bot, 'send_message', None):
+                logger.error("Telegram bot instance not available")
+                return {
+                    "success": False,
+                    "message": "Telegram bot not initialized",
+                    "error": "bot_not_available"
+                }
+            
+            # Generate unique message ID
+            import uuid
+            message_id = str(uuid.uuid4()).replace('-', '')[:8]
+            
+            # Format update with info emoji
+            formatted_message = f"📈 UPDATE\n{message}"
+            
+            # Send to updates channel
+            sent_message = await self.bot.send_message(
+                chat_id=int(self.updates_chat_id),
+                text=formatted_message,
+                parse_mode='HTML',
+                disable_web_page_preview=True,
+                disable_notification=False  # Normal notification
+            )
+            
+            logger.info(f"Sent update to updates channel. Message ID: {message_id}")
+            
+            return {
+                "success": True,
+                "message": "Update sent successfully",
+                "message_id": message_id,
+                "telegram_message_id": sent_message.message_id,
+                "chat_id": self.updates_chat_id,
+                "channel_type": "updates"
+            }
+            
+        except Exception as e:
+            logger.exception("Error sending update message")
+            return {
+                "success": False,
+                "message": f"Failed to send update: {str(e)}",
                 "error": str(e)
             }
     
@@ -672,8 +785,8 @@ class TelegramService:
             Dict with send result and message tracking info
         """
         try:
-            # Use discovered chat ID from testing
-            chat_id_to_use = 86655387  # Known working chat ID from test
+            # Use buy alerts channel for complex alerts with buy/sell buttons
+            chat_id_to_use = self.buy_alerts_chat_id  # Route to buy alerts channel
             
             if not chat_id_to_use:
                 logger.warning("No chat ID available. User needs to start the bot first.")
@@ -1957,12 +2070,174 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error handling close quantity adjustment: {e}")
 
+    async def _handle_remove_alert(self, message_id: str, message_info: Dict[str, Any]):
+        """
+        Handle removal of a fake/false alert from storage
+        
+        Args:
+            message_id: The message ID to remove
+            message_info: The stored message information
+        """
+        try:
+            # Remove from pending messages
+            if message_id in self.pending_messages:
+                del self.pending_messages[message_id]
+                logger.info(f"Removed alert {message_id} from pending messages")
+            
+            # Remove from notification service storage if available
+            try:
+                from app.services.notification_service import notification_service
+                
+                # Find and remove the notification from storage
+                original_message = message_info.get('original_message', '')
+                timestamp = message_info.get('timestamp', '')
+                
+                # Search for matching notification in storage
+                removed_count = 0
+                notifications_to_remove = []
+                
+                for notification in notification_service.notifications:
+                    # Match by message content and timestamp proximity
+                    if (original_message and original_message in notification.notification) or \
+                       (timestamp and abs((datetime.fromisoformat(timestamp.replace('Z', '+00:00')) - 
+                                         notification.timestamp).total_seconds()) < 60):
+                        notifications_to_remove.append(notification)
+                        
+                # Remove matched notifications
+                for notification in notifications_to_remove:
+                    notification_service.notifications.remove(notification)
+                    removed_count += 1
+                    
+                if removed_count > 0:
+                    logger.info(f"Removed {removed_count} matching notification(s) from storage")
+                else:
+                    logger.info("No matching notifications found in storage to remove")
+                    
+            except Exception as e:
+                logger.warning(f"Could not remove from notification storage: {e}")
+            
+            # Remove from file-based alerts storage (alerts.json)
+            try:
+                from app.services.handlers.lite_handlers import _load_alerts, _save_alerts
+                import re
+                
+                # Extract ticker from the original message to identify which alert to remove
+                original_message = message_info.get('original_message', '')
+                
+                # Try to extract ticker from the message (look for common patterns)
+                ticker_match = re.search(r'(BTO|STO|BTC|STC)\s+([A-Z]{1,5})\s+', original_message)
+                if ticker_match:
+                    ticker = ticker_match.group(2)
+                    
+                    # Load current alerts
+                    alerts = _load_alerts()
+                    
+                    # Try to find and remove the alert from different alerter sections
+                    removed_from_file = False
+                    alerter_mappings = {
+                        'demslayer': 'demslayer',
+                        'realdaytrading': 'real-day-trading', 
+                        'profandkian': 'profandkian',
+                        'robindahood': 'robindahood-alerts'
+                    }
+                    
+                    for alerter_key, file_key in alerter_mappings.items():
+                        if file_key in alerts and ticker in alerts[file_key]:
+                            del alerts[file_key][ticker]
+                            removed_from_file = True
+                            logger.info(f"Removed {ticker} alert from {file_key} in alerts.json")
+                            break
+                    if removed_from_file:
+                        _save_alerts(alerts)
+                        logger.info(f"Successfully removed {ticker} from alerts.json file storage")
+                    else:
+                        logger.info(f"No matching alert found for ticker {ticker} in alerts.json")
+                else:
+                    logger.info("Could not extract ticker from message to remove from file storage")
+                    
+            except Exception as e:
+                logger.warning(f"Could not remove from file storage: {e}")
+            
+            logger.info(f"Successfully handled removal of alert {message_id}")
+            
+        except Exception as e:
+            logger.error(f"Error in _handle_remove_alert for {message_id}: {e}")
+            raise
+
+    async def _handle_open_alert(self, message_id: str, message_info: Dict[str, Any]) -> bool:
+        """
+        Handle marking an alert as open in storage
+        
+        Args:
+            message_id: The message ID to mark as open
+            message_info: The stored message information
+            
+        Returns:
+            bool: True if successfully marked as open, False if already open or not found
+        """
+        try:
+            # Extract ticker from the original message to identify which alert to open
+            original_message = message_info.get('original_message', '')
+            
+            # Try to extract ticker from the message (look for common patterns)
+            import re
+            ticker_match = re.search(r'(BTO|STO|BTC|STC)\s+([A-Z]{1,5})\s+', original_message)
+            
+            if not ticker_match:
+                logger.warning(f"Could not extract ticker from message: {original_message}")
+                return False
+                
+            ticker = ticker_match.group(2)
+            logger.info(f"Attempting to mark {ticker} alert as open")
+            
+            # Load and update alerts.json
+            from app.services.handlers.lite_handlers import _load_alerts, _save_alerts
+            alerts = _load_alerts()
+            
+            # Try to find and update the alert in different alerter sections
+            found_and_updated = False
+            alerter_mappings = {
+                'demslayer': 'demslayer',
+                'realdaytrading': 'real-day-trading', 
+                'profandkian': 'profandkian',
+                'robindahood': 'robindahood-alerts'
+            }
+            
+            for alerter_key, file_key in alerter_mappings.items():
+                if file_key in alerts and ticker in alerts[file_key]:
+                    current_status = alerts[file_key][ticker].get('open', False)
+                    
+                    if current_status:
+                        logger.info(f"Alert {ticker} in {file_key} was already open")
+                        return False  # Already open
+                    else:
+                        # Mark as open
+                        alerts[file_key][ticker]['open'] = True
+                        alerts[file_key][ticker]['opened_at'] = datetime.now().isoformat()
+                        found_and_updated = True
+                        logger.info(f"Marked {ticker} alert as open in {file_key}")
+                        break
+                        
+            if found_and_updated:
+                _save_alerts(alerts)
+                logger.info(f"Successfully marked {ticker} as open in alerts.json")
+                return True
+            else:
+                logger.warning(f"No matching alert found for ticker {ticker} in alerts.json")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error in _handle_open_alert for {message_id}: {e}")
+            return False
+
     async def _on_callback(self, update, context):
         """Telegram.Application CallbackQuery handler wrapper"""
         try:
             query = update.callback_query
             if not query:
+                logger.debug("No callback query in update")
                 return
+            logger.info(f"Received callback with data: {query.data}")
             await self.handle_button_callback(query)
         except Exception as e:
             logger.error(f"Error in callback wrapper: {e}")
@@ -1975,16 +2250,19 @@ class TelegramService:
         """
         try:
             data = getattr(query, 'data', None)
+            logger.info(f"Processing callback data: {data}")
             if not data:
                 logger.debug("No callback data present")
                 return
 
             # Parse callback formats: qty:<id>:<delta>, qty_close:<id>:<delta>, execute_close:<id>, execute_open:<id>
             parts = data.split(":")
+            logger.info(f"Parsed callback parts: {parts}")
             if not parts:
                 return
 
             cmd = parts[0]
+            logger.info(f"Callback command: {cmd}")
             if cmd == 'disabled':
                 # Do nothing for disabled buttons
                 try:
@@ -2098,6 +2376,94 @@ class TelegramService:
                     message_info['response'] = result
                 except Exception as e:
                     logger.error(f"Error processing execute action {action}: {e}")
+                return
+
+            # Handle remove button for buy alerts
+            if cmd == 'remove' and len(parts) >= 2:
+                message_id = parts[1]
+                message_info = self.pending_messages.get(message_id)
+                
+                if not message_info:
+                    try:
+                        await query.edit_message_text("⚠️ This message has expired.")
+                    except Exception:
+                        pass
+                    return
+                
+                try:
+                    # Remove the alert from storage
+                    await self._handle_remove_alert(message_id, message_info)
+                    
+                    # Update the message to show it was removed
+                    removed_text = f"🗑️ ALERT REMOVED (FAKE)\n\n~~{message_info.get('original_message', 'Alert')}~~\n\n✅ This alert has been marked as fake and removed from storage."
+                    
+                    try:
+                        await query.edit_message_text(
+                            text=removed_text, 
+                            parse_mode='HTML',
+                            reply_markup=None  # Remove buttons
+                        )
+                    except Exception:
+                        pass
+                        
+                    try:
+                        await query.answer("Alert removed successfully!")
+                    except Exception:
+                        pass
+                        
+                except Exception as e:
+                    logger.error(f"Error removing alert {message_id}: {e}")
+                    try:
+                        await query.answer("Error removing alert. Please try again.")
+                    except Exception:
+                        pass
+                return
+
+            # Handle open button for buy alerts
+            if cmd == 'open' and len(parts) >= 2:
+                message_id = parts[1]
+                message_info = self.pending_messages.get(message_id)
+                
+                if not message_info:
+                    try:
+                        await query.edit_message_text("⚠️ This message has expired.")
+                    except Exception:
+                        pass
+                    return
+                
+                try:
+                    # Mark the alert as open in storage
+                    success = await self._handle_open_alert(message_id, message_info)
+                    
+                    if success:
+                        # Update the message to show it was marked as open
+                        opened_text = f"📈 ALERT OPENED\n\n{message_info.get('original_message', 'Alert')}\n\n✅ This alert has been marked as open in storage."
+                        
+                        try:
+                            await query.edit_message_text(
+                                text=opened_text, 
+                                parse_mode='HTML',
+                                reply_markup=None  # Remove buttons completely
+                            )
+                        except Exception:
+                            pass
+                            
+                        try:
+                            await query.answer("Alert marked as open!")
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            await query.answer("Alert was already open or could not be found.")
+                        except Exception:
+                            pass
+                        
+                except Exception as e:
+                    logger.error(f"Error opening alert {message_id}: {e}")
+                    try:
+                        await query.answer("Error opening alert. Please try again.")
+                    except Exception:
+                        pass
                 return
 
             logger.debug(f"Unhandled callback data: {data}")

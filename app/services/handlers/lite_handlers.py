@@ -667,7 +667,7 @@ class LiteRealDayTradingHandler:
                 telegram_message += f" | <a href='{quote_link}'>🔗 Option Quote</a>"
             
             # Send via telegram service
-            result = await telegram_service.send_lite_alert(telegram_message)
+            result = await telegram_service.send_buy_alert(telegram_message)
             
             return result
             
@@ -707,7 +707,7 @@ class LiteRealDayTradingHandler:
                     telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
 
             # Send via telegram service
-            result = await telegram_service.send_lite_alert(telegram_message)
+            result = await telegram_service.send_update_message(telegram_message)
             
             return result
             
@@ -967,7 +967,7 @@ class LiteDemslayerHandler:
                 telegram_message += f" | <a href='{quote_link}'>🔗 Option Quote</a>"
             
             # Send via telegram service
-            result = await telegram_service.send_lite_alert(telegram_message)
+            result = await telegram_service.send_buy_alert(telegram_message)
             
             return result
             
@@ -1007,7 +1007,7 @@ class LiteDemslayerHandler:
                     telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
 
             # Send via telegram service
-            result = await telegram_service.send_lite_alert(telegram_message)
+            result = await telegram_service.send_update_message(telegram_message)
             
             return result
             
@@ -1184,7 +1184,7 @@ class LiteProfAndKianHandler:
                 telegram_message += f" | <a href='{quote_link}'>🔗 Option Quote</a>"
             
             # Send via telegram service
-            result = await telegram_service.send_lite_alert(telegram_message)
+            result = await telegram_service.send_buy_alert(telegram_message)
             
             return result
             
@@ -1224,7 +1224,7 @@ class LiteProfAndKianHandler:
                     telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
 
             # Send via telegram service
-            result = await telegram_service.send_lite_alert(telegram_message)
+            result = await telegram_service.send_update_message(telegram_message)
             
             return result
             
@@ -1540,7 +1540,7 @@ class LiteRobinDaHoodHandler:
                 telegram_message += f" | <a href='{quote_link}'>🔗 Option Quote</a>"
             
             # Send via telegram service
-            result = await telegram_service.send_lite_alert(telegram_message)
+            result = await telegram_service.send_buy_alert(telegram_message)
             
             return result
             
@@ -1580,7 +1580,7 @@ class LiteRobinDaHoodHandler:
                     telegram_message += f"{ticker} - {details['strike']}{details['side']} - {formatted_expiry}  <a href='{quote_link}'>🔗 Option Quote</a>\n"
             
             # Send via telegram service
-            result = await telegram_service.send_lite_alert(telegram_message)
+            result = await telegram_service.send_update_message(telegram_message)
             
             return result
             

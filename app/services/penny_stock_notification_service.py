@@ -104,9 +104,9 @@ class PennyStockNotificationService:
             # Log the notification
             self._log_notification("BUY_ORDER_FILLED", ticker, message)
             
-            # Send via telegram
+            # Send via telegram - buy order is a buy alert
             if self.telegram_service:
-                result = await self.telegram_service.send_lite_alert(message)
+                result = await self.telegram_service.send_buy_alert(message)
                 logger.info(f"Sent penny stock buy notification for {ticker}: {result.get('success', False)}")
                 return result
             else:
@@ -154,9 +154,9 @@ class PennyStockNotificationService:
             # Log the notification
             self._log_notification("SELL_ORDER_FILLED", ticker, message)
             
-            # Send via telegram
+            # Send via telegram - sell order is an update
             if self.telegram_service:
-                result = await self.telegram_service.send_lite_alert(message)
+                result = await self.telegram_service.send_update_message(message)
                 logger.info(f"Sent penny stock sell notification for {ticker}: {result.get('success', False)}")
                 return result
             else:
@@ -200,9 +200,9 @@ class PennyStockNotificationService:
             # Log the notification
             self._log_notification("PRICE_TARGET_REACHED", ticker, message)
             
-            # Send via telegram
+            # Send via telegram - price target is an update
             if self.telegram_service:
-                result = await self.telegram_service.send_lite_alert(message)
+                result = await self.telegram_service.send_update_message(message)
                 logger.info(f"Sent penny stock target notification for {ticker}: {result.get('success', False)}")
                 return result
             else:
